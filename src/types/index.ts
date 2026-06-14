@@ -299,7 +299,7 @@ export interface Collaborator {
   lastActiveAt?: number;
 }
 
-export type ReportFormat = 'html' | 'markdown' | 'json' | 'txt';
+export type ReportFormat = 'html' | 'markdown' | 'json' | 'txt' | 'pdf' | 'word';
 
 export interface ReconstructionReport {
   id: string;

@@ -841,7 +841,7 @@ export function generateReconstructionReportContent(params: ReportGenerationPara
     schemeSherds.reduce((acc, s) => acc + (s.sherdEvidence?.referenceArtifacts.length || 0), 0);
   const unresolvedConflicts = schemeEvidence.conflicts.filter((c) => !c.resolved).length;
 
-  if (format === 'html') {
+  if (format === 'html' || format === 'pdf' || format === 'word') {
     return `<!DOCTYPE html>
 <html lang="zh-CN">
 <head>

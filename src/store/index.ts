@@ -1231,18 +1231,50 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   downloadReport: (report) => {
-    const extMap: Record<ReportFormat, string> = { html: 'html', markdown: 'md', json: 'json', txt: 'txt' };
+    const extMap: Record<ReportFormat, string> = { html: 'html', markdown: 'md', json: 'json', txt: 'txt', pdf: 'html', word: 'doc' };
     const mimeMap: Record<ReportFormat, string> = {
       html: 'text/html',
       markdown: 'text/markdown',
       json: 'application/json',
       txt: 'text/plain',
+      pdf: 'text/html',
+      word: 'application/msword',
     };
+    const baseName = `考古复原报告-${report.schemeName}-${new Date().toISOString().slice(0, 10)}`;
+
+    if (report.format === 'pdf') {
+      const printWin = window.open('', '_blank');
+      if (printWin) {
+        printWin.document.write(report.content);
+        printWin.document.close();
+        printWin.focus();
+        setTimeout(() => {
+          printWin.print();
+        }, 300);
+      }
+      return;
+    }
+
+    if (report.format === 'word') {
+      const header = '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">';
+      const wordContent = report.content.replace('<html lang="zh-CN">', header);
+      const blob = new Blob(['\ufeff', wordContent], { type: mimeMap.word });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${baseName}.doc`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      return;
+    }
+
     const blob = new Blob([report.content], { type: mimeMap[report.format] });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `考古复原报告-${report.schemeName}-${new Date().toISOString().slice(0, 10)}.${extMap[report.format]}`;
+    a.download = `${baseName}.${extMap[report.format]}`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);

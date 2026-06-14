@@ -50,6 +50,12 @@ export function ReconstructionCanvas({ onMetricsChange }: ReconstructionCanvasPr
 
   const canvasCenter = useMemo(() => ({ x: 400, y: 300 }), []);
   const centerAxisX = canvasCenter.x;
+  const lastLoadedSchemeIdRef = useRef<string | null>(null);
+  const lastLoadedSherdIdsRef = useRef<string[]>([]);
+  const weightConfigRef = useRef(weightConfig);
+  weightConfigRef.current = weightConfig;
+  const updateSchemeRef = useRef(updateScheme);
+  updateSchemeRef.current = updateScheme;
 
   useEffect(() => {
     activeSchemeRef.current = activeScheme;
@@ -73,6 +79,9 @@ export function ReconstructionCanvas({ onMetricsChange }: ReconstructionCanvasPr
       }
     });
   }, [onMetricsChange]);
+
+  const scheduleMetricsUpdateRef = useRef(scheduleMetricsUpdate);
+  scheduleMetricsUpdateRef.current = scheduleMetricsUpdate;
 
   const scheduleFastMetricsUpdate = useCallback((metrics: ReconstructionMetrics) => {
     pendingMetricsRef.current = metrics;
@@ -320,201 +329,342 @@ export function ReconstructionCanvas({ onMetricsChange }: ReconstructionCanvasPr
     const canvas = fabricCanvasRef.current;
     if (!canvas) return;
 
-    canvas.clear();
-    cachedSherdDataRef.current.clear();
-    setBreakPointInfos([]);
-    setContributions(null);
+    const currentSchemeId = activeScheme?.id || null;
+    const currentSherdIds = activeScheme
+      ? activeScheme.sherdPlacements.map((p) => p.sherdId).sort()
+      : [];
 
-    const axisLine = new fabric.Line(
-      [centerAxisX, 20, centerAxisX, 580],
-      {
-        stroke: '#6366f1',
-        strokeWidth: 2,
-        strokeDashArray: [8, 4],
+    const schemeChanged = currentSchemeId !== lastLoadedSchemeIdRef.current;
+    const sherdsChanged =
+      currentSherdIds.length !== lastLoadedSherdIdsRef.current.length ||
+      currentSherdIds.some((id, i) => id !== lastLoadedSherdIdsRef.current[i]);
+
+    const needsFullReload = schemeChanged || sherdsChanged;
+
+    if (needsFullReload) {
+      lastLoadedSchemeIdRef.current = currentSchemeId;
+      lastLoadedSherdIdsRef.current = currentSherdIds;
+
+      canvas.clear();
+      cachedSherdDataRef.current.clear();
+      setBreakPointInfos([]);
+      setContributions(null);
+
+      const axisLine = new fabric.Line(
+        [centerAxisX, 20, centerAxisX, 580],
+        {
+          stroke: '#6366f1',
+          strokeWidth: 2,
+          strokeDashArray: [8, 4],
+          selectable: false,
+          evented: false,
+        }
+      );
+      canvas.add(axisLine);
+
+      const axisLabel = new fabric.Text('中心轴', {
+        left: centerAxisX + 8,
+        top: 20,
+        fontSize: 12,
+        fill: '#6366f1',
         selectable: false,
         evented: false,
+      });
+      canvas.add(axisLabel);
+
+      if (!activeScheme || activeScheme.sherdPlacements.length === 0) {
+        canvas.renderAll();
+        onMetricsChange?.(null);
+        queueMicrotask(() => setCalcTime(null));
+        return;
       }
-    );
-    canvas.add(axisLine);
 
-    const axisLabel = new fabric.Text('中心轴', {
-      left: centerAxisX + 8,
-      top: 20,
-      fontSize: 12,
-      fill: '#6366f1',
-      selectable: false,
-      evented: false,
-    });
-    canvas.add(axisLabel);
+      const startTime = performance.now();
+      const allTransformedPoints: ReturnType<typeof transformKeyPoints> = [];
+      const imagePromises: Promise<void>[] = [];
 
-    if (!activeScheme || activeScheme.sherdPlacements.length === 0) {
-      canvas.renderAll();
-      onMetricsChange?.(null);
-      queueMicrotask(() => setCalcTime(null));
-      return;
-    }
+      activeScheme.sherdPlacements.forEach((placement) => {
+        const sherd = sherds.find((s) => s.id === placement.sherdId);
+        if (!sherd) return;
 
-    const startTime = performance.now();
-    const allTransformedPoints: ReturnType<typeof transformKeyPoints> = [];
-    const imagePromises: Promise<void>[] = [];
+        const transformed = transformKeyPoints(sherd, placement, canvasCenter);
+        allTransformedPoints.push(...transformed);
 
-    activeScheme.sherdPlacements.forEach((placement) => {
-      const sherd = sherds.find((s) => s.id === placement.sherdId);
-      if (!sherd) return;
+        const imgScale = Math.min(
+          300 / sherd.image.width,
+          300 / sherd.image.height,
+          0.8
+        );
 
-      const transformed = transformKeyPoints(sherd, placement, canvasCenter);
-      allTransformedPoints.push(...transformed);
+        const promise = fabric.Image.fromURL(sherd.image.dataUrl, { crossOrigin: 'anonymous' }).then((img: fabric.Image) => {
+          const finalScale = imgScale * placement.scale;
+          const baseLeft = canvasCenter.x - sherd.image.width / 2;
+          const baseTop = canvasCenter.y - sherd.image.height / 2;
 
-      const imgScale = Math.min(
-        300 / sherd.image.width,
-        300 / sherd.image.height,
-        0.8
-      );
+          img.set({
+            left: baseLeft + placement.offsetX - (sherd.image.width * finalScale) / 2 + sherd.image.width / 2,
+            top: baseTop + placement.offsetY - (sherd.image.height * finalScale) / 2 + sherd.image.height / 2,
+            scaleX: finalScale,
+            scaleY: finalScale,
+            angle: placement.rotation,
+            opacity: 0.85,
+            borderColor: '#6366f1',
+            cornerColor: '#6366f1',
+            cornerSize: 8,
+            transparentCorners: false,
+          });
+          (img as FabricImageWithData).sherdId = sherd.id;
 
-      const promise = fabric.Image.fromURL(sherd.image.dataUrl, { crossOrigin: 'anonymous' }).then((img: fabric.Image) => {
-        const finalScale = imgScale * placement.scale;
-        const baseLeft = canvasCenter.x - sherd.image.width / 2;
-        const baseTop = canvasCenter.y - sherd.image.height / 2;
+          canvas.add(img);
 
-        img.set({
-          left: baseLeft + placement.offsetX - (sherd.image.width * finalScale) / 2 + sherd.image.width / 2,
-          top: baseTop + placement.offsetY - (sherd.image.height * finalScale) / 2 + sherd.image.height / 2,
-          scaleX: finalScale,
-          scaleY: finalScale,
-          angle: placement.rotation,
-          opacity: 0.85,
-          borderColor: '#6366f1',
-          cornerColor: '#6366f1',
-          cornerSize: 8,
-          transparentCorners: false,
+          const keyPointCircles: fabric.Circle[] = [];
+
+          transformed.forEach((kp) => {
+            const colors: Record<string, string> = {
+              rim: '#ef4444',
+              body: '#3b82f6',
+              base: '#22c55e',
+              pattern: '#a855f7',
+            };
+            const circle = new fabric.Circle({
+              radius: 5,
+              fill: colors[kp.type],
+              stroke: '#fff',
+              strokeWidth: 1.5,
+              left: kp.transformedX,
+              top: kp.transformedY,
+              originX: 'center',
+              originY: 'center',
+              selectable: false,
+              evented: false,
+            });
+            canvas.add(circle);
+            keyPointCircles.push(circle);
+          });
+
+          cachedSherdDataRef.current.set(sherd.id, {
+            image: img,
+            placement: { ...placement },
+            keyPointCircles,
+          });
+
+          canvas.renderAll();
         });
-        (img as FabricImageWithData).sherdId = sherd.id;
 
-        canvas.add(img);
+        imagePromises.push(promise);
+      });
 
-        const keyPointCircles: fabric.Circle[] = [];
+      const contour = buildContour(allTransformedPoints, centerAxisX);
+      if (contour.length > 2) {
+        const contourPoints = contour.map((p) => ({ x: p.x, y: p.y }));
+        const polygon = new fabric.Polygon(contourPoints, {
+          fill: 'rgba(99, 102, 241, 0.1)',
+          stroke: '#6366f1',
+          strokeWidth: 2,
+          selectable: false,
+          evented: false,
+        });
+        canvas.add(polygon);
+        canvas.sendObjectToBack(polygon);
+      }
 
-        transformed.forEach((kp) => {
-          const colors: Record<string, string> = {
-            rim: '#ef4444',
-            body: '#3b82f6',
-            base: '#22c55e',
-            pattern: '#a855f7',
-          };
-          const circle = new fabric.Circle({
-            radius: 5,
-            fill: colors[kp.type],
-            stroke: '#fff',
-            strokeWidth: 1.5,
-            left: kp.transformedX,
-            top: kp.transformedY,
+      let avgScale = 1;
+      if (activeScheme.sherdPlacements.length > 0) {
+        avgScale =
+          activeScheme.sherdPlacements.reduce((acc, p) => {
+            const sherd = sherds.find((s) => s.id === p.sherdId);
+            return acc + (sherd?.scale || 1);
+          }, 0) / activeScheme.sherdPlacements.length;
+      }
+
+      const result = calculateMetricsWithContributions(allTransformedPoints, contour, centerAxisX, avgScale, sherds, weightConfigRef.current);
+      const metrics = result.metrics;
+      metrics.calculationTime = performance.now() - startTime;
+
+      setBreakPointInfos(result.breakPointInfos);
+      setContributions(result.contributions);
+
+      if (metrics.hasContourBreak && metrics.breakPoints.length > 0) {
+        metrics.breakPoints.forEach((bp) => {
+          const glow = new fabric.Circle({
+            radius: 14,
+            fill: 'rgba(239, 68, 68, 0.25)',
+            stroke: '#ef4444',
+            strokeWidth: 0,
+            left: bp.x,
+            top: bp.y,
             originX: 'center',
             originY: 'center',
             selectable: false,
             evented: false,
           });
-          canvas.add(circle);
-          keyPointCircles.push(circle);
-        });
+          canvas.add(glow);
 
-        cachedSherdDataRef.current.set(sherd.id, {
-          image: img,
-          placement: { ...placement },
-          keyPointCircles,
-        });
+          const breakMarker = new fabric.Circle({
+            radius: 8,
+            fill: '#ef4444',
+            stroke: '#fff',
+            strokeWidth: 2,
+            left: bp.x,
+            top: bp.y,
+            originX: 'center',
+            originY: 'center',
+            selectable: false,
+            evented: false,
+          });
+          canvas.add(breakMarker);
 
+          const breakText = new fabric.Text('!', {
+            left: bp.x,
+            top: bp.y,
+            fontSize: 11,
+            fontWeight: 'bold',
+            fill: '#fff',
+            originX: 'center',
+            originY: 'center',
+            selectable: false,
+            evented: false,
+          });
+          canvas.add(breakText);
+        });
+      }
+
+      if (metrics.hasContourBreak && activeScheme.isTrusted) {
+        updateSchemeRef.current(activeScheme.id, { isTrusted: false });
+      }
+
+      scheduleMetricsUpdateRef.current(metrics);
+      canvas.renderAll();
+
+      Promise.all(imagePromises).then(() => {
         canvas.renderAll();
       });
+    } else if (activeScheme) {
+      const startTime = performance.now();
+      const allTransformedPoints: ReturnType<typeof transformKeyPoints> = [];
 
-      imagePromises.push(promise);
-    });
+      activeScheme.sherdPlacements.forEach((placement) => {
+        const sherd = sherds.find((s) => s.id === placement.sherdId);
+        if (!sherd) return;
 
-    const contour = buildContour(allTransformedPoints, centerAxisX);
-    if (contour.length > 2) {
-      const contourPoints = contour.map((p) => ({ x: p.x, y: p.y }));
-      const polygon = new fabric.Polygon(contourPoints, {
-        fill: 'rgba(99, 102, 241, 0.1)',
-        stroke: '#6366f1',
-        strokeWidth: 2,
-        selectable: false,
-        evented: false,
+        const transformed = transformKeyPoints(sherd, placement, canvasCenter);
+        allTransformedPoints.push(...transformed);
+
+        const cached = cachedSherdDataRef.current.get(placement.sherdId);
+        if (cached) {
+          const imgScale = Math.min(
+            300 / sherd.image.width,
+            300 / sherd.image.height,
+            0.8
+          );
+          const finalScale = imgScale * placement.scale;
+          const baseLeft = canvasCenter.x - sherd.image.width / 2;
+          const baseTop = canvasCenter.y - sherd.image.height / 2;
+
+          cached.image.set({
+            left: baseLeft + placement.offsetX - (sherd.image.width * finalScale) / 2 + sherd.image.width / 2,
+            top: baseTop + placement.offsetY - (sherd.image.height * finalScale) / 2 + sherd.image.height / 2,
+            scaleX: finalScale,
+            scaleY: finalScale,
+            angle: placement.rotation,
+          });
+
+          cached.keyPointCircles.forEach((c, i) => {
+            const kp = transformed[i];
+            if (kp) {
+              c.set({ left: kp.transformedX, top: kp.transformedY });
+            }
+          });
+
+          cached.placement = { ...placement };
+        }
       });
-      canvas.add(polygon);
-      canvas.sendObjectToBack(polygon);
-    }
 
-    let avgScale = 1;
-    if (activeScheme.sherdPlacements.length > 0) {
-      avgScale =
-        activeScheme.sherdPlacements.reduce((acc, p) => {
-          const sherd = sherds.find((s) => s.id === p.sherdId);
-          return acc + (sherd?.scale || 1);
-        }, 0) / activeScheme.sherdPlacements.length;
-    }
+      const existingPolygon = canvas.getObjects().find((obj) => obj.type === 'polygon');
+      if (existingPolygon) {
+        const contour = buildContour(allTransformedPoints, centerAxisX);
+        if (contour.length > 2) {
+          const contourPoints = contour.map((p) => ({ x: p.x, y: p.y }));
+          (existingPolygon as fabric.Polygon).set({ points: contourPoints });
+        }
+      }
 
-    const result = calculateMetricsWithContributions(allTransformedPoints, contour, centerAxisX, avgScale, sherds, weightConfig);
-    const metrics = result.metrics;
-    metrics.calculationTime = performance.now() - startTime;
-
-    setBreakPointInfos(result.breakPointInfos);
-    setContributions(result.contributions);
-
-    if (metrics.hasContourBreak && metrics.breakPoints.length > 0) {
-      metrics.breakPoints.forEach((bp) => {
-        const glow = new fabric.Circle({
-          radius: 14,
-          fill: 'rgba(239, 68, 68, 0.25)',
-          stroke: '#ef4444',
-          strokeWidth: 0,
-          left: bp.x,
-          top: bp.y,
-          originX: 'center',
-          originY: 'center',
-          selectable: false,
-          evented: false,
-        });
-        canvas.add(glow);
-
-        const breakMarker = new fabric.Circle({
-          radius: 8,
-          fill: '#ef4444',
-          stroke: '#fff',
-          strokeWidth: 2,
-          left: bp.x,
-          top: bp.y,
-          originX: 'center',
-          originY: 'center',
-          selectable: false,
-          evented: false,
-        });
-        canvas.add(breakMarker);
-
-        const breakText = new fabric.Text('!', {
-          left: bp.x,
-          top: bp.y,
-          fontSize: 11,
-          fontWeight: 'bold',
-          fill: '#fff',
-          originX: 'center',
-          originY: 'center',
-          selectable: false,
-          evented: false,
-        });
-        canvas.add(breakText);
+      canvas.getObjects().forEach((obj) => {
+        if (obj.type === 'circle' && (obj as fabric.Circle).radius === 14) {
+          canvas.remove(obj);
+        }
       });
-    }
 
-    if (metrics.hasContourBreak && activeScheme.isTrusted) {
-      updateScheme(activeScheme.id, { isTrusted: false });
-    }
+      const contour = buildContour(allTransformedPoints, centerAxisX);
+      let avgScale = 1;
+      if (activeScheme.sherdPlacements.length > 0) {
+        avgScale =
+          activeScheme.sherdPlacements.reduce((acc, p) => {
+            const sherd = sherds.find((s) => s.id === p.sherdId);
+            return acc + (sherd?.scale || 1);
+          }, 0) / activeScheme.sherdPlacements.length;
+      }
 
-    scheduleMetricsUpdate(metrics);
-    canvas.renderAll();
+      const result = calculateMetricsWithContributions(allTransformedPoints, contour, centerAxisX, avgScale, sherds, weightConfigRef.current);
+      const metrics = result.metrics;
+      metrics.calculationTime = performance.now() - startTime;
 
-    Promise.all(imagePromises).then(() => {
+      setBreakPointInfos(result.breakPointInfos);
+      setContributions(result.contributions);
+
+      if (metrics.hasContourBreak && metrics.breakPoints.length > 0) {
+        metrics.breakPoints.forEach((bp) => {
+          const glow = new fabric.Circle({
+            radius: 14,
+            fill: 'rgba(239, 68, 68, 0.25)',
+            stroke: '#ef4444',
+            strokeWidth: 0,
+            left: bp.x,
+            top: bp.y,
+            originX: 'center',
+            originY: 'center',
+            selectable: false,
+            evented: false,
+          });
+          canvas.add(glow);
+
+          const breakMarker = new fabric.Circle({
+            radius: 8,
+            fill: '#ef4444',
+            stroke: '#fff',
+            strokeWidth: 2,
+            left: bp.x,
+            top: bp.y,
+            originX: 'center',
+            originY: 'center',
+            selectable: false,
+            evented: false,
+          });
+          canvas.add(breakMarker);
+
+          const breakText = new fabric.Text('!', {
+            left: bp.x,
+            top: bp.y,
+            fontSize: 11,
+            fontWeight: 'bold',
+            fill: '#fff',
+            originX: 'center',
+            originY: 'center',
+            selectable: false,
+            evented: false,
+          });
+          canvas.add(breakText);
+        });
+      }
+
+      if (metrics.hasContourBreak && activeScheme.isTrusted) {
+        updateSchemeRef.current(activeScheme.id, { isTrusted: false });
+      }
+
+      scheduleMetricsUpdateRef.current(metrics);
       canvas.renderAll();
-    });
-  }, [activeScheme?.id, activeScheme?.sherdPlacements.length, sherds.length, canvasCenter, centerAxisX, scheduleMetricsUpdate, updateScheme, weightConfig]);
+    }
+  }, [activeScheme?.id, activeScheme?.sherdPlacements, sherds.length, canvasCenter, centerAxisX, onMetricsChange]);
 
   useEffect(() => {
     return () => {

@@ -34,6 +34,8 @@ interface ReportGeneratorProps {
 
 const FORMAT_OPTIONS: { value: ReportFormat; label: string; icon: any }[] = [
   { value: 'html', label: 'HTML 报告', icon: IconBrandHtml5 },
+  { value: 'pdf', label: 'PDF 报告', icon: IconFileText },
+  { value: 'word', label: 'Word 文档', icon: IconFile },
   { value: 'markdown', label: 'Markdown', icon: IconFileText },
   { value: 'json', label: 'JSON 数据', icon: IconBraces },
   { value: 'txt', label: '纯文本', icon: IconFile },
@@ -347,7 +349,7 @@ function AlertWithReport({
           </Table.Tbody>
         </Table>
 
-        {report.format === 'html' && (
+        {(report.format === 'html' || report.format === 'pdf' || report.format === 'word') && (
           <div
             style={{
               maxHeight: 300,
@@ -361,7 +363,7 @@ function AlertWithReport({
           />
         )}
 
-        {report.format !== 'html' && (
+        {report.format !== 'html' && report.format !== 'pdf' && report.format !== 'word' && (
           <ScrollArea h={300}>
             <Text
               size="xs"
