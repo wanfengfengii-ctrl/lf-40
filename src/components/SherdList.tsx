@@ -33,10 +33,11 @@ export function SherdList() {
   const [projectError, setProjectError] = useState<string | null>(null);
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
+  const [modalDragOver, setModalDragOver] = useState(false);
   const [fileStatuses, setFileStatuses] = useState<FileImportStatus[]>([]);
   const dropRef = useRef<HTMLDivElement>(null);
 
-  const processBatchImport = async (files: File[]) => {
+  const processBatchImport = useCallback(async (files: File[]) => {
     if (files.length === 0) return;
     setImportStatus({ loading: true, progress: 0, message: `正在处理 ${files.length} 个文件...` });
     setImportResult(null);
@@ -78,7 +79,7 @@ export function SherdList() {
     } catch (e) {
       setImportStatus({ loading: false, progress: 0, message: `导入失败: ${e instanceof Error ? e.message : String(e)}` });
     }
-  };
+  }, [batchImportSherds]);
 
   const handleBatchImport = async (files: File[] | null) => {
     if (!files || files.length === 0) return;
@@ -124,47 +125,34 @@ export function SherdList() {
         setImportStatus({ loading: false, progress: 0, message: '' });
         setBatchModalOpen(true);
       }
-      setImportStatus({ loading: true, progress: 0, message: `正在处理 ${files.length} 个文件...` });
-      setImportResult(null);
-
-      const statuses: FileImportStatus[] = files.map((f) => ({
-        file: f,
-        status: 'pending' as const,
-      }));
-      setFileStatuses(statuses);
-
-      try {
-        const result = await batchImportSherds(files);
-        const duplicateFiles = new Map(result.duplicates.map((d) => [d.file.name, d.reason]));
-        const failedFiles = new Map(result.failed.map((f) => [f.file.name, f.reason]));
-
-        const updatedStatuses: FileImportStatus[] = files.map((f) => {
-          const dupReason = duplicateFiles.get(f.name);
-          const failReason = failedFiles.get(f.name);
-          const successSherd = result.successful.find((s) => s.image.name === f.name);
-
-          if (successSherd) {
-            return { file: f, status: 'success', sherdNumber: successSherd.sherdNumber };
-          } else if (dupReason) {
-            return { file: f, status: 'duplicate', reason: dupReason };
-          } else if (failReason) {
-            return { file: f, status: 'failed', reason: failReason };
-          }
-          return { file: f, status: 'pending' };
-        });
-
-        setFileStatuses(updatedStatuses);
-        setImportStatus({ loading: false, progress: 100, message: '导入完成' });
-        setImportResult({
-          success: result.successful.length,
-          duplicates: result.duplicates.length,
-          failed: result.failed.length,
-        });
-      } catch (e) {
-        setImportStatus({ loading: false, progress: 0, message: `导入失败: ${e instanceof Error ? e.message : String(e)}` });
-      }
+      await processBatchImport(files);
     }
-  }, [batchImportSherds, batchModalOpen]);
+  }, [batchModalOpen, processBatchImport]);
+
+  const handleModalDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setModalDragOver(true);
+  }, []);
+
+  const handleModalDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setModalDragOver(false);
+  }, []);
+
+  const handleModalDrop = useCallback(async (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setModalDragOver(false);
+
+    const files = Array.from(e.dataTransfer.files).filter((f) =>
+      f.type.startsWith('image/')
+    );
+    if (files.length > 0) {
+      await processBatchImport(files);
+    }
+  }, [processBatchImport]);
 
   const statusIcon = (status: FileImportStatus['status']) => {
     switch (status) {
@@ -361,41 +349,34 @@ export function SherdList() {
       >
         <Stack gap="md">
           {importStatus.loading && (
-            <Progress value={importStatus.progress} label={importStatus.message} animated />
+            <Stack gap="xs">
+              <Text size="sm" c="dimmed">{importStatus.message}</Text>
+              <Progress value={importStatus.progress} animated />
+            </Stack>
           )}
           {!importStatus.loading && (
             <>
               <div
-                onDragOver={handleDragOver}
-                onDragLeave={handleDragLeave}
-                onDrop={async (e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  setIsDragOver(false);
-                  const files = Array.from(e.dataTransfer.files).filter((f) =>
-                    f.type.startsWith('image/')
-                  );
-                  if (files.length > 0) {
-                    await processBatchImport(files);
-                  }
-                }}
+                onDragOver={handleModalDragOver}
+                onDragLeave={handleModalDragLeave}
+                onDrop={handleModalDrop}
                 style={{
-                  border: isDragOver
+                  border: modalDragOver
                     ? '2px dashed var(--mantine-color-indigo-5)'
                     : '2px dashed var(--mantine-color-gray-4)',
                   borderRadius: 8,
                   padding: 20,
                   textAlign: 'center',
-                  backgroundColor: isDragOver
+                  backgroundColor: modalDragOver
                     ? 'rgba(99, 102, 241, 0.05)'
                     : 'transparent',
                   transition: 'all 0.2s ease',
                   cursor: 'pointer',
                 }}
               >
-                <IconUpload size={28} color={isDragOver ? 'var(--mantine-color-indigo-5)' : '#9ca3af'} />
-                <Text size="sm" fw={500} mt="xs" c={isDragOver ? 'indigo' : 'dimmed'}>
-                  {isDragOver ? '释放以导入' : '拖放图像文件到此处'}
+                <IconUpload size={28} color={modalDragOver ? 'var(--mantine-color-indigo-5)' : '#9ca3af'} />
+                <Text size="sm" fw={500} mt="xs" c={modalDragOver ? 'indigo' : 'dimmed'}>
+                  {modalDragOver ? '释放以导入' : '拖放图像文件到此处'}
                 </Text>
                 <Text size="xs" c="dimmed" mt={4}>
                   或点击下方按钮选择文件，支持多选

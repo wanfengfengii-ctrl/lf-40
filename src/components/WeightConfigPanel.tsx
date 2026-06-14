@@ -1,5 +1,5 @@
 import { Card, Text, Stack, Group, Slider, Button, Divider, Tooltip, Badge, Alert } from '@mantine/core';
-import { IconTarget, IconLayers, IconFlower2, IconCheck, IconRefresh, IconRestore } from '@tabler/icons-react';
+import { IconTarget, IconStack, IconFlower, IconCheck, IconRefresh, IconRestore } from '@tabler/icons-react';
 import { useAppStore } from '@/store';
 import { DEFAULT_WEIGHT_CONFIG } from '@/utils/reconstruction';
 import type { MetricsWeightConfig } from '@/types';
@@ -97,7 +97,7 @@ export function WeightConfigPanel() {
           <Stack gap="xs">
             <Group justify="space-between">
               <Group gap="xs">
-                <IconLayers size={16} color="#a855f7" />
+                <IconStack size={16} color="#a855f7" />
                 <Text size="sm" fw={500}>厚度一致性权重</Text>
               </Group>
               <Group gap={4}>
@@ -123,7 +123,7 @@ export function WeightConfigPanel() {
           <Stack gap="xs">
             <Group justify="space-between">
               <Group gap="xs">
-                <IconFlower2 size={16} color="#f97316" />
+                <IconFlower size={16} color="#f97316" />
                 <Text size="sm" fw={500}>纹饰对齐权重</Text>
               </Group>
               <Group gap={4}>

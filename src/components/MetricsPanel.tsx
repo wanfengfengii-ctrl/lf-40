@@ -1,6 +1,6 @@
 import { useEffect, useMemo } from 'react';
 import { Card, Text, Stack, Group, Progress, Badge, Alert, Divider, List, Tooltip, Accordion, Box } from '@mantine/core';
-import { IconRuler, IconArrowNarrowUp, IconTarget, IconAlertTriangle, IconCheck, IconLayers, IconFlower2, IconBolt, IconCrosshair, IconInfoCircle } from '@tabler/icons-react';
+import { IconRuler, IconArrowNarrowUp, IconTarget, IconAlertTriangle, IconCheck, IconStack, IconFlower, IconBolt, IconCrosshair, IconInfoCircle } from '@tabler/icons-react';
 import { useAppStore } from '@/store';
 import type { BreakPointInfo, ReconstructionMetrics, MetricsContribution } from '@/types';
 
@@ -293,7 +293,7 @@ export function MetricsPanel({ metrics: externalMetrics }: MetricsPanelProps) {
           </Card>
           <Card withBorder padding="sm" radius="md">
             <Stack gap="xs" align="center">
-              <IconLayers size={18} color="#a855f7" />
+              <IconStack size={18} color="#a855f7" />
               <Text size="xs" c="dimmed">预计壁厚</Text>
               <Text fw={600} size="sm">
                 {metrics.estimatedWallThickness && metrics.estimatedWallThickness > 0
@@ -356,7 +356,7 @@ export function MetricsPanel({ metrics: externalMetrics }: MetricsPanelProps) {
                 value={contributions.thicknessContribution}
                 maxValue={100 * weightConfig.thicknessWeight}
                 color="#a855f7"
-                icon={<IconLayers size={12} color="#a855f7" />}
+                icon={<IconStack size={12} color="#a855f7" />}
                 weight={weightConfig.thicknessWeight}
                 rawValue={contributions.thicknessRaw}
               />
@@ -365,7 +365,7 @@ export function MetricsPanel({ metrics: externalMetrics }: MetricsPanelProps) {
                 value={contributions.patternContribution}
                 maxValue={100 * weightConfig.patternWeight}
                 color="#f97316"
-                icon={<IconFlower2 size={12} color="#f97316" />}
+                icon={<IconFlower size={12} color="#f97316" />}
                 weight={weightConfig.patternWeight}
                 rawValue={contributions.patternRaw}
               />
@@ -376,7 +376,7 @@ export function MetricsPanel({ metrics: externalMetrics }: MetricsPanelProps) {
         <Stack gap="xs">
           <Group justify="space-between">
             <Group gap="xs">
-              <IconLayers size={16} color={thicknessColor === 'green' ? '#22c55e' : thicknessColor === 'yellow' ? '#eab308' : '#ef4444'} />
+              <IconStack size={16} color={thicknessColor === 'green' ? '#22c55e' : thicknessColor === 'yellow' ? '#eab308' : '#ef4444'} />
               <Text size="xs" fw={500}>厚度一致性</Text>
             </Group>
             <Group gap="xs">
@@ -404,7 +404,7 @@ export function MetricsPanel({ metrics: externalMetrics }: MetricsPanelProps) {
         <Stack gap="xs">
           <Group justify="space-between">
             <Group gap="xs">
-              <IconFlower2 size={16} color={patternColor === 'green' ? '#22c55e' : patternColor === 'yellow' ? '#eab308' : '#ef4444'} />
+              <IconFlower size={16} color={patternColor === 'green' ? '#22c55e' : patternColor === 'yellow' ? '#eab308' : '#ef4444'} />
               <Text size="xs" fw={500}>纹饰对齐度</Text>
             </Group>
             <Group gap="xs">

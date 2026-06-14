@@ -32,15 +32,15 @@ import {
   IconZoomIn,
   IconHistory,
   IconRestore,
-  IconSave,
+  IconDeviceFloppy,
   IconArrowNarrowDown,
   IconArrowNarrowUp,
   IconChevronLeft,
   IconChevronRight,
   IconBolt,
   IconTarget,
-  IconLayers,
-  IconFlower2,
+  IconStack,
+  IconFlower,
 } from '@tabler/icons-react';
 import { useState, useMemo } from 'react';
 import type { SchemeVersion } from '@/types';
@@ -289,7 +289,7 @@ export function SchemeManager() {
                       setVersionModalOpen(true);
                     }}
                   >
-                    <IconSave size={14} />
+                    <IconDeviceFloppy size={14} />
                   </ActionIcon>
                 </Tooltip>
                 <Tooltip
@@ -461,14 +461,14 @@ export function SchemeManager() {
                     </Stack>
                     <Stack gap={0} align="center">
                       <Group gap={2}>
-                        <IconLayers size={8} color="#a855f7" />
+                        <IconStack size={8} color="#a855f7" />
                         <Text size="9" c="dimmed">厚度</Text>
                       </Group>
                       <Text size="xs" fw={500}>{activeContributions.thicknessContribution.toFixed(1)}</Text>
                     </Stack>
                     <Stack gap={0} align="center">
                       <Group gap={2}>
-                        <IconFlower2 size={8} color="#f97316" />
+                        <IconFlower size={8} color="#f97316" />
                         <Text size="9" c="dimmed">纹饰</Text>
                       </Group>
                       <Text size="xs" fw={500}>{activeContributions.patternContribution.toFixed(1)}</Text>

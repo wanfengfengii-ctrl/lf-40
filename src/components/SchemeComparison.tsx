@@ -1,6 +1,6 @@
 import { useAppStore } from '@/store';
 import { Card, Text, Table, Group, Badge, Progress, ScrollArea, Tooltip, ActionIcon, SegmentedControl, Alert, Stack, Grid, Divider } from '@mantine/core';
-import { IconCheck, IconAlertTriangle, IconStar, IconArrowUp, IconArrowDown, IconFlower2, IconLayers, IconTarget, IconBulb, IconCrown } from '@tabler/icons-react';
+import { IconCheck, IconAlertTriangle, IconStar, IconArrowUp, IconArrowDown, IconFlower, IconStack, IconTarget, IconBulb, IconCrown } from '@tabler/icons-react';
 import { useMemo, useState } from 'react';
 import { rankSchemes } from '@/utils/reconstruction';
 import type { SchemeRanking } from '@/types';
@@ -258,7 +258,7 @@ export function SchemeComparison() {
         <Table.Td style={{ minWidth: 100 }}>
           <Group gap={4}>
             <Tooltip label="厚度一致性">
-              <IconLayers size={12} color="#a855f7" />
+              <IconStack size={12} color="#a855f7" />
             </Tooltip>
             <Progress value={r.thicknessScore} color="grape" size="sm" style={{ flex: 1 }} />
             <Text size="xs" fw={600} w={28} ta="right">{r.thicknessScore.toFixed(0)}</Text>
@@ -267,7 +267,7 @@ export function SchemeComparison() {
         <Table.Td style={{ minWidth: 100 }}>
           <Group gap={4}>
             <Tooltip label="纹饰对齐">
-              <IconFlower2 size={12} color="#f97316" />
+              <IconFlower size={12} color="#f97316" />
             </Tooltip>
             <Progress value={r.patternScore} color="orange" size="sm" style={{ flex: 1 }} />
             <Text size="xs" fw={600} w={28} ta="right">{r.patternScore.toFixed(0)}</Text>
@@ -381,7 +381,7 @@ export function SchemeComparison() {
                       </Card>
                       <Card withBorder padding="xs" radius="sm">
                         <Stack gap={0} align="center">
-                          <IconLayers size={12} color="#a855f7" />
+                          <IconStack size={12} color="#a855f7" />
                           <Text size="8" c="dimmed">厚度</Text>
                           <Text size="xs" fw={600}>{activeRanking.contributions.thicknessContribution.toFixed(1)}</Text>
                           <Text size="7" c="dimmed">({activeRanking.contributions.thicknessRaw.toFixed(0)}×{weightConfig.thicknessWeight})</Text>
@@ -389,7 +389,7 @@ export function SchemeComparison() {
                       </Card>
                       <Card withBorder padding="xs" radius="sm">
                         <Stack gap={0} align="center">
-                          <IconFlower2 size={12} color="#f97316" />
+                          <IconFlower size={12} color="#f97316" />
                           <Text size="8" c="dimmed">纹饰</Text>
                           <Text size="xs" fw={600}>{activeRanking.contributions.patternContribution.toFixed(1)}</Text>
                           <Text size="7" c="dimmed">({activeRanking.contributions.patternRaw.toFixed(0)}×{weightConfig.patternWeight})</Text>

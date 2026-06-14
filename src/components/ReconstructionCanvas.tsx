@@ -30,6 +30,10 @@ export function ReconstructionCanvas({ onMetricsChange }: ReconstructionCanvasPr
   const updateRafRef = useRef<number | null>(null);
   const isDraggingRef = useRef(false);
   const lastUpdateTimeRef = useRef(0);
+  const activeSchemeRef = useRef<typeof activeScheme>(null);
+  const sherdsRef = useRef<typeof sherds>([]);
+  const scheduleVisualUpdateRef = useRef<() => void>(() => {});
+  const updateCanvasVisualsRef = useRef<() => void>(() => {});
   const [calcTime, setCalcTime] = useState<number | null>(null);
   const [breakPointInfos, setBreakPointInfos] = useState<BreakPointInfo[]>([]);
   const [contributions, setContributions] = useState<MetricsContribution | null>(null);
@@ -46,6 +50,14 @@ export function ReconstructionCanvas({ onMetricsChange }: ReconstructionCanvasPr
 
   const canvasCenter = useMemo(() => ({ x: 400, y: 300 }), []);
   const centerAxisX = canvasCenter.x;
+
+  useEffect(() => {
+    activeSchemeRef.current = activeScheme;
+  }, [activeScheme]);
+
+  useEffect(() => {
+    sherdsRef.current = sherds;
+  }, [sherds]);
 
   const scheduleMetricsUpdate = useCallback((metrics: ReconstructionMetrics) => {
     pendingMetricsRef.current = metrics;
@@ -219,6 +231,14 @@ export function ReconstructionCanvas({ onMetricsChange }: ReconstructionCanvasPr
   }, [updateCanvasVisuals]);
 
   useEffect(() => {
+    scheduleVisualUpdateRef.current = scheduleVisualUpdate;
+  }, [scheduleVisualUpdate]);
+
+  useEffect(() => {
+    updateCanvasVisualsRef.current = updateCanvasVisuals;
+  }, [updateCanvasVisuals]);
+
+  useEffect(() => {
     if (!canvasRef.current || fabricCanvasRef.current) return;
 
     const canvas = new fabric.Canvas(canvasRef.current, {
@@ -227,52 +247,61 @@ export function ReconstructionCanvas({ onMetricsChange }: ReconstructionCanvasPr
     });
     fabricCanvasRef.current = canvas;
 
+    const getImgScale = (sherd: { image: { width: number; height: number } }) =>
+      Math.min(300 / sherd.image.width, 300 / sherd.image.height, 0.8);
+
     canvas.on('object:moving', () => {
       isDraggingRef.current = true;
       setIsRealTime(true);
-      scheduleVisualUpdate();
+      scheduleVisualUpdateRef.current?.();
     });
 
     canvas.on('object:scaling', () => {
       isDraggingRef.current = true;
       setIsRealTime(true);
-      scheduleVisualUpdate();
+      scheduleVisualUpdateRef.current?.();
     });
 
     canvas.on('object:rotating', () => {
       isDraggingRef.current = true;
       setIsRealTime(true);
-      scheduleVisualUpdate();
+      scheduleVisualUpdateRef.current?.();
     });
 
     canvas.on('object:modified', (opt) => {
       isDraggingRef.current = false;
       setIsRealTime(false);
 
-      if (!activeScheme) return;
+      const scheme = activeSchemeRef.current;
+      const currentSherds = sherdsRef.current;
+      if (!scheme) return;
+
       const obj = opt.target as FabricImageWithData;
       if (!obj || !obj.sherdId) return;
 
       const sherdId = obj.sherdId as string;
-      const sherd = sherds.find((s) => s.id === sherdId);
+      const sherd = currentSherds.find((s) => s.id === sherdId);
       if (!sherd) return;
 
-      const scale = obj.scaleX || 1;
+      const imgScale = getImgScale(sherd);
+      const finalScale = obj.scaleX || 1;
+      const placementScale = finalScale / imgScale;
       const rotation = obj.angle || 0;
-      const imgCenterX = sherd.image.width * scale / 2;
-      const imgCenterY = sherd.image.height * scale / 2;
 
-      const offsetX = (obj.left || 0) + imgCenterX - (canvasCenter.x - sherd.image.width / 2);
-      const offsetY = (obj.top || 0) + imgCenterY - (canvasCenter.y - sherd.image.height / 2);
+      const scaledWidth = sherd.image.width * finalScale;
+      const scaledHeight = sherd.image.height * finalScale;
 
-      updateSherdPlacement(activeScheme.id, sherdId, {
+      const offsetX = (obj.left || 0) + scaledWidth / 2 - canvasCenter.x;
+      const offsetY = (obj.top || 0) + scaledHeight / 2 - canvasCenter.y;
+
+      updateSherdPlacement(scheme.id, sherdId, {
         rotation,
-        scale,
+        scale: placementScale,
         offsetX,
         offsetY,
       });
 
-      updateCanvasVisuals();
+      updateCanvasVisualsRef.current?.();
     });
 
     return () => {
@@ -285,7 +314,7 @@ export function ReconstructionCanvas({ onMetricsChange }: ReconstructionCanvasPr
       canvas.dispose();
       fabricCanvasRef.current = null;
     };
-  }, [activeScheme, sherds, canvasCenter, updateSherdPlacement, scheduleVisualUpdate, updateCanvasVisuals]);
+  }, [canvasCenter.x, canvasCenter.y, updateSherdPlacement]);
 
   useEffect(() => {
     const canvas = fabricCanvasRef.current;

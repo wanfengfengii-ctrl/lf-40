@@ -30,7 +30,7 @@ function App() {
   const [projectModalOpen, setProjectModalOpen] = useState(false);
   const [projectError, setProjectError] = useState<string | null>(null);
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
-  const [metaForm, setMetaForm] = useState(projectMetadata);
+  const [metaForm, setMetaForm] = useState(projectMetadata || {});
   const showAutoSaveFlash = useMemo(() => {
     return lastAutoSaveAt !== null && lastAutoSaveAt > 0;
   }, [lastAutoSaveAt]);
@@ -43,7 +43,7 @@ function App() {
   };
 
   const handleOpenProjectModal = () => {
-    setMetaForm(projectMetadata);
+    setMetaForm(projectMetadata || {});
     setProjectError(null);
     setProjectModalOpen(true);
   };

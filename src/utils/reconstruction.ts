@@ -1,6 +1,7 @@
 import type {
   Sherd,
   SherdPlacement,
+  ReconstructionScheme,
   ReconstructionMetrics,
   ContourPoint,
   KeyPoint,
@@ -105,7 +106,7 @@ export function buildContour(
 
 export function analyzeFailureReasons(
   transformedPoints: TransformedKeyPoint[],
-  contour: ContourPoint[],
+  _contour: ContourPoint[],
   metrics: ReconstructionMetrics,
   sherds: Sherd[]
 ): string[] {
@@ -588,7 +589,7 @@ export function rankSchemes(
   const weights = weightConfig || DEFAULT_WEIGHT_CONFIG;
   const centerAxisX = canvasCenter.x;
 
-  const rankings = schemes.map((scheme) => {
+  const rankings: SchemeRanking[] = schemes.map((scheme) => {
     const allPoints: TransformedKeyPoint[] = [];
     scheme.sherdPlacements.forEach((placement) => {
       const sherd = sherds.find((s) => s.id === placement.sherdId);
