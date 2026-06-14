@@ -1,12 +1,17 @@
 import { useState, useMemo } from 'react';
-import { AppShell, Box, Group, Text, Tabs, Container, Badge, Tooltip, ActionIcon, TextInput, Modal, Button, Stack, FileButton, Textarea, Alert, Divider } from '@mantine/core';
-import { IconBrush, IconMug, IconChartBar, IconEdit, IconCheck, IconFolderOpen, IconDownload, IconUpload, IconTrashX, IconDeviceFloppy, IconCloudCheck, IconCloudUpload } from '@tabler/icons-react';
+import { AppShell, Box, Group, Text, Tabs, Container, Badge, Tooltip, ActionIcon, TextInput, Modal, Button, Stack, FileButton, Textarea, Alert, Divider, ScrollArea, Card } from '@mantine/core';
+import { IconBrush, IconMug, IconChartBar, IconEdit, IconCheck, IconFolderOpen, IconDownload, IconUpload, IconTrashX, IconDeviceFloppy, IconCloudCheck, IconCloudUpload, IconFileText, IconTimeline } from '@tabler/icons-react';
 import { SherdList } from '@/components/SherdList';
 import { SherdCanvas } from '@/components/SherdCanvas';
 import { ReconstructionCanvas } from '@/components/ReconstructionCanvas';
 import { SchemeManager } from '@/components/SchemeManager';
 import { MetricsPanel } from '@/components/MetricsPanel';
 import { SchemeComparison } from '@/components/SchemeComparison';
+import { EvidenceAnnotationPanel } from '@/components/EvidenceAnnotationPanel';
+import { EvidenceTimeline } from '@/components/EvidenceTimeline';
+import { EvidenceConflictAlert } from '@/components/EvidenceConflictAlert';
+import { ReportGenerator } from '@/components/ReportGenerator';
+import { CollaborationPanel } from '@/components/CollaborationPanel';
 import { useAppStore } from '@/store';
 import type { ReconstructionMetrics } from '@/types';
 
@@ -185,6 +190,9 @@ function App() {
             <Tabs.Tab value="comparison" leftSection={<IconChartBar size={16} />}>
               智能评估与方案推荐
             </Tabs.Tab>
+            <Tabs.Tab value="evidence" leftSection={<IconFileText size={16} />}>
+              证据与报告
+            </Tabs.Tab>
           </Tabs.List>
 
           <Tabs.Panel value="editor">
@@ -204,10 +212,11 @@ function App() {
                 <ReconstructionCanvas onMetricsChange={setMetrics} />
               </Box>
               <Box style={{ width: 360, flexShrink: 0 }}>
-                <Group gap="md" style={{ flexDirection: 'column', height: '100%' }} grow>
+                <Stack gap="md" style={{ height: '100%' }}>
                   <SchemeManager />
                   <MetricsPanel metrics={metrics} />
-                </Group>
+                  <EvidenceConflictAlert targetType="scheme" />
+                </Stack>
               </Box>
             </Group>
           </Tabs.Panel>
@@ -216,6 +225,38 @@ function App() {
             <Container size="xl" py="md">
               <SchemeComparison />
             </Container>
+          </Tabs.Panel>
+
+          <Tabs.Panel value="evidence">
+            <Group grow align="stretch" style={{ height: 'calc(100vh - 180px)', gap: 'md' }}>
+              <Box style={{ width: 380, flexShrink: 0 }}>
+                <EvidenceAnnotationPanel />
+              </Box>
+              <Box style={{ flex: 1, minWidth: 0 }}>
+                <Stack gap="md" style={{ height: '100%' }}>
+                  <Box style={{ height: 180, flexShrink: 0 }}>
+                    <CollaborationPanel />
+                  </Box>
+                  <EvidenceConflictAlert targetType="scheme" />
+                  <Box style={{ flex: 1, minHeight: 0 }}>
+                    <Card shadow="sm" padding="md" radius="md" withBorder h="100%">
+                      <Group justify="space-between" mb="md">
+                        <Group gap="xs">
+                          <IconTimeline size={18} color="#6366f1" />
+                          <Text fw={600}>方案依据时间线</Text>
+                        </Group>
+                      </Group>
+                      <ScrollArea h="calc(100% - 50px)">
+                        <EvidenceTimeline />
+                      </ScrollArea>
+                    </Card>
+                  </Box>
+                </Stack>
+              </Box>
+              <Box style={{ width: 360, flexShrink: 0 }}>
+                <ReportGenerator />
+              </Box>
+            </Group>
           </Tabs.Panel>
         </Tabs>
       </AppShell.Main>

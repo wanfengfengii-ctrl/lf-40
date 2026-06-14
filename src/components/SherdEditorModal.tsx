@@ -1,11 +1,12 @@
-import { Modal, Button, Group, TextInput, NumberInput, Stack, Text, FileButton, Image, Textarea, Alert, Badge } from '@mantine/core';
+import { Modal, Button, Group, TextInput, NumberInput, Stack, Text, FileButton, Image, Textarea, Alert, Badge, Tabs } from '@mantine/core';
 import { useForm } from '@mantine/form';
 import { useAppStore } from '@/store';
 import { useEffect, useState, useRef } from 'react';
-import { IconAlertCircle, IconUpload, IconCheck } from '@tabler/icons-react';
+import { IconAlertCircle, IconUpload, IconCheck, IconFileText } from '@tabler/icons-react';
 import type { SherdImage } from '@/types';
 import { computeImageHash } from '@/utils/geometry';
 import { checkDuplicateSherd } from '@/utils/reconstruction';
+import { EvidenceAnnotationPanel } from './EvidenceAnnotationPanel';
 
 interface SherdEditorModalProps {
   opened: boolean;
@@ -164,7 +165,7 @@ export function SherdEditorModal({ opened, onClose, sherdId }: SherdEditorModalP
       opened={opened}
       onClose={() => !isSubmitting && onClose()}
       title={editingSherd ? '编辑残片信息' : '导入新残片'}
-      size="lg"
+      size="xl"
     >
       <form onSubmit={handleSubmit}>
         <Stack gap="md">
@@ -179,90 +180,111 @@ export function SherdEditorModal({ opened, onClose, sherdId }: SherdEditorModalP
             </Alert>
           )}
 
-          <Group align="flex-start" grow>
-            <Stack gap="sm" style={{ flex: 1 }}>
-              <TextInput
-                label="残片编号"
-                placeholder="如：SH-001"
-                key={form.key('sherdNumber')}
-                {...form.getInputProps('sherdNumber')}
-              />
-              <NumberInput
-                label="比例尺 (像素/毫米)"
-                placeholder="1 像素等于多少毫米"
-                min={0.01}
-                decimalScale={2}
-                step={0.1}
-                key={form.key('scale')}
-                {...form.getInputProps('scale')}
-              />
-              <NumberInput
-                label="厚度 (mm)"
-                placeholder="残片平均厚度"
-                min={0.1}
-                decimalScale={1}
-                step={0.5}
-                key={form.key('thickness')}
-                {...form.getInputProps('thickness')}
-              />
-              <TextInput
-                label="纹饰位置"
-                placeholder="如：口沿下 2cm 处"
-                key={form.key('patternPosition')}
-                {...form.getInputProps('patternPosition')}
-              />
-              <Textarea
-                label="备注"
-                placeholder="其他信息..."
-                minRows={2}
-                key={form.key('notes')}
-                {...form.getInputProps('notes')}
-              />
-            </Stack>
-
-            <Stack gap="sm" style={{ flex: 1 }}>
-              <Group justify="space-between">
-                <Text size="sm" fw={500}>残片图像</Text>
-                {imageData?.hash && (
-                  <Badge size="xs" variant="light" color="green">
-                    已校验
-                  </Badge>
-                )}
-              </Group>
-              {imageData ? (
-                <Stack gap="sm">
-                  <Image
-                    src={imageData.dataUrl}
-                    alt={imageData.name}
-                    radius="md"
-                    h={200}
-                    fit="contain"
-                    style={{ backgroundColor: '#f5f5f7' }}
-                  />
-                  <Text size="xs" c="dimmed">
-                    {imageData.name} ({imageData.width} × {imageData.height}px)
-                  </Text>
-                  <FileButton onChange={handleFile} accept="image/*">
-                    {(props) => <Button {...props} variant="light" size="sm">更换图像</Button>}
-                  </FileButton>
-                </Stack>
-              ) : (
-                <FileButton onChange={handleFile} accept="image/*">
-                  {(props) => (
-                    <Button
-                      {...props}
-                      variant="light"
-                      h={200}
-                      leftSection={<IconUpload size={24} />}
-                      style={{ width: '100%' }}
-                    >
-                      点击上传残片图像
-                    </Button>
-                  )}
-                </FileButton>
+          <Tabs defaultValue="basic" variant="outline" radius="md">
+            <Tabs.List mb="md">
+              <Tabs.Tab value="basic" leftSection={<IconUpload size={16} />}>
+                基本信息
+              </Tabs.Tab>
+              {editingSherd && (
+                <Tabs.Tab value="evidence" leftSection={<IconFileText size={16} />}>
+                  证据标注
+                </Tabs.Tab>
               )}
-            </Stack>
-          </Group>
+            </Tabs.List>
+
+            <Tabs.Panel value="basic">
+              <Group align="flex-start" grow>
+                <Stack gap="sm" style={{ flex: 1 }}>
+                  <TextInput
+                    label="残片编号"
+                    placeholder="如：SH-001"
+                    key={form.key('sherdNumber')}
+                    {...form.getInputProps('sherdNumber')}
+                  />
+                  <NumberInput
+                    label="比例尺 (像素/毫米)"
+                    placeholder="1 像素等于多少毫米"
+                    min={0.01}
+                    decimalScale={2}
+                    step={0.1}
+                    key={form.key('scale')}
+                    {...form.getInputProps('scale')}
+                  />
+                  <NumberInput
+                    label="厚度 (mm)"
+                    placeholder="残片平均厚度"
+                    min={0.1}
+                    decimalScale={1}
+                    step={0.5}
+                    key={form.key('thickness')}
+                    {...form.getInputProps('thickness')}
+                  />
+                  <TextInput
+                    label="纹饰位置"
+                    placeholder="如：口沿下 2cm 处"
+                    key={form.key('patternPosition')}
+                    {...form.getInputProps('patternPosition')}
+                  />
+                  <Textarea
+                    label="备注"
+                    placeholder="其他信息..."
+                    minRows={2}
+                    key={form.key('notes')}
+                    {...form.getInputProps('notes')}
+                  />
+                </Stack>
+
+                <Stack gap="sm" style={{ flex: 1 }}>
+                  <Group justify="space-between">
+                    <Text size="sm" fw={500}>残片图像</Text>
+                    {imageData?.hash && (
+                      <Badge size="xs" variant="light" color="green">
+                        已校验
+                      </Badge>
+                    )}
+                  </Group>
+                  {imageData ? (
+                    <Stack gap="sm">
+                      <Image
+                        src={imageData.dataUrl}
+                        alt={imageData.name}
+                        radius="md"
+                        h={200}
+                        fit="contain"
+                        style={{ backgroundColor: '#f5f5f7' }}
+                      />
+                      <Text size="xs" c="dimmed">
+                        {imageData.name} ({imageData.width} × {imageData.height}px)
+                      </Text>
+                      <FileButton onChange={handleFile} accept="image/*">
+                        {(props) => <Button {...props} variant="light" size="sm">更换图像</Button>}
+                      </FileButton>
+                    </Stack>
+                  ) : (
+                    <FileButton onChange={handleFile} accept="image/*">
+                      {(props) => (
+                        <Button
+                          {...props}
+                          variant="light"
+                          h={200}
+                          leftSection={<IconUpload size={24} />}
+                          style={{ width: '100%' }}
+                        >
+                          点击上传残片图像
+                        </Button>
+                      )}
+                    </FileButton>
+                  )}
+                </Stack>
+              </Group>
+            </Tabs.Panel>
+
+            {editingSherd && (
+              <Tabs.Panel value="evidence">
+                <EvidenceAnnotationPanel forceTargetType="sherd" forceSherdId={editingSherd.id} />
+              </Tabs.Panel>
+            )}
+          </Tabs>
 
           <Group justify="flex-end" mt="md">
             <Button variant="default" onClick={onClose} disabled={isSubmitting}>取消</Button>

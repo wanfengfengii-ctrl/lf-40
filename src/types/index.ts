@@ -168,3 +168,167 @@ export interface SchemeRanking {
   isTrusted: boolean;
   contributions?: MetricsContribution;
 }
+
+export type ConfidenceLevel = 'low' | 'medium' | 'high' | 'very_high';
+
+export type EvidenceType = 'stratigraphy' | 'typology' | 'scientific' | 'expert' | 'document' | 'other';
+
+export interface EvidenceSource {
+  id: string;
+  type: EvidenceType;
+  title: string;
+  description?: string;
+  url?: string;
+  author?: string;
+  publicationDate?: string;
+  pageReference?: string;
+}
+
+export interface ChronologyJudgment {
+  id: string;
+  period: string;
+  dynasty?: string;
+  estimatedYearStart?: number;
+  estimatedYearEnd?: number;
+  confidenceLevel: ConfidenceLevel;
+  basis: string;
+  evidenceSourceIds: string[];
+  createdAt: number;
+  createdBy: string;
+}
+
+export interface StratigraphyInfo {
+  id: string;
+  layerNumber: string;
+  layerDescription?: string;
+  depthFrom?: number;
+  depthTo?: number;
+  associatedFeatures?: string;
+  confidenceLevel: ConfidenceLevel;
+  evidenceSourceIds: string[];
+  createdAt: number;
+  createdBy: string;
+}
+
+export interface ReferenceArtifact {
+  id: string;
+  artifactName: string;
+  artifactType: string;
+  museumOrCollection?: string;
+  catalogNumber?: string;
+  similarityDescription: string;
+  similarityScore: number;
+  imageUrl?: string;
+  confidenceLevel: ConfidenceLevel;
+  evidenceSourceIds: string[];
+  createdAt: number;
+  createdBy: string;
+}
+
+export interface ExpertOpinion {
+  id: string;
+  expertName: string;
+  expertTitle?: string;
+  institution?: string;
+  opinionType: 'support' | 'oppose' | 'neutral' | 'suggestion';
+  content: string;
+  confidenceLevel: ConfidenceLevel;
+  evidenceSourceIds: string[];
+  createdAt: number;
+}
+
+export interface EditHistoryEntry {
+  id: string;
+  timestamp: number;
+  userId: string;
+  userName: string;
+  action: 'create' | 'update' | 'delete' | 'restore';
+  targetType: 'sherd' | 'scheme' | 'evidence' | 'chronology' | 'stratigraphy' | 'reference' | 'opinion';
+  targetId: string;
+  fieldName?: string;
+  oldValue?: string;
+  newValue?: string;
+  summary?: string;
+}
+
+export interface EvidenceConflict {
+  id: string;
+  detectedAt: number;
+  type: 'chronology_conflict' | 'stratigraphy_conflict' | 'expert_opinion_conflict' | 'reference_conflict';
+  severity: 'low' | 'medium' | 'high';
+  description: string;
+  involvedEvidenceIds: string[];
+  resolved: boolean;
+  resolvedAt?: number;
+  resolvedBy?: string;
+  resolutionNote?: string;
+}
+
+export interface SherdEvidence {
+  sherdId: string;
+  evidenceSources: EvidenceSource[];
+  chronologyJudgments: ChronologyJudgment[];
+  stratigraphyInfos: StratigraphyInfo[];
+  referenceArtifacts: ReferenceArtifact[];
+  expertOpinions: ExpertOpinion[];
+  conflicts: EvidenceConflict[];
+  editHistory: EditHistoryEntry[];
+  lastAnnotatedAt?: number;
+  lastAnnotatedBy?: string;
+}
+
+export interface SchemeEvidence {
+  schemeId: string;
+  evidenceSources: EvidenceSource[];
+  chronologyJudgments: ChronologyJudgment[];
+  stratigraphyInfos: StratigraphyInfo[];
+  referenceArtifacts: ReferenceArtifact[];
+  expertOpinions: ExpertOpinion[];
+  conflicts: EvidenceConflict[];
+  editHistory: EditHistoryEntry[];
+  lastAnnotatedAt?: number;
+  lastAnnotatedBy?: string;
+  reconstructionBasis?: string;
+}
+
+export interface Collaborator {
+  id: string;
+  name: string;
+  role: 'lead' | 'expert' | 'assistant' | 'reviewer';
+  avatarColor?: string;
+  lastActiveAt?: number;
+}
+
+export type ReportFormat = 'html' | 'markdown' | 'json' | 'txt';
+
+export interface ReconstructionReport {
+  id: string;
+  generatedAt: number;
+  generatedBy: string;
+  format: ReportFormat;
+  projectName: string;
+  schemeName: string;
+  schemeId: string;
+  content: string;
+  metadata: {
+    version: string;
+    sherdCount: number;
+    evidenceCount: number;
+    expertOpinionCount: number;
+    chronologyCount: number;
+    stratigraphyCount: number;
+    referenceCount: number;
+  };
+}
+
+export interface TimelineEvent {
+  id: string;
+  date: string;
+  timestamp: number;
+  title: string;
+  description: string;
+  category: 'evidence' | 'expert' | 'chronology' | 'stratigraphy' | 'reference' | 'edit';
+  relatedId: string;
+  confidenceLevel?: ConfidenceLevel;
+  author?: string;
+}

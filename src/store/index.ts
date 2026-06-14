@@ -1,6 +1,6 @@
 import { create } from 'zustand';
-import type { Sherd, ReconstructionScheme, SherdPlacement, ProjectData, SchemeVersion, ReconstructionMetrics, BatchImportResult, MetricsRefreshEvent, MetricsContribution, BreakPointInfo, MetricsWeightConfig } from '@/types';
-import { validateSherdNumber, validateScheme, transformKeyPoints, buildContour, calculateMetricsWithContributions, exportProject, importProject, downloadProjectFile, checkDuplicateSherd, DEFAULT_WEIGHT_CONFIG } from '@/utils/reconstruction';
+import type { Sherd, ReconstructionScheme, SherdPlacement, ProjectData, SchemeVersion, ReconstructionMetrics, BatchImportResult, MetricsRefreshEvent, MetricsContribution, BreakPointInfo, MetricsWeightConfig, SherdEvidence, SchemeEvidence, EvidenceSource, ChronologyJudgment, StratigraphyInfo, ReferenceArtifact, ExpertOpinion, EditHistoryEntry, EvidenceConflict, Collaborator, TimelineEvent, ReconstructionReport, ReportFormat, ContourPoint } from '@/types';
+import { validateSherdNumber, validateScheme, transformKeyPoints, buildContour, calculateMetricsWithContributions, exportProject, importProject, downloadProjectFile, checkDuplicateSherd, DEFAULT_WEIGHT_CONFIG, generateReconstructionReportContent } from '@/utils/reconstruction';
 import { computeImageHash } from '@/utils/geometry';
 
 type MetricsListener = (event: MetricsRefreshEvent) => void;
@@ -74,6 +74,47 @@ interface AppState {
   autoSaveToLocal: () => void;
   loadAutoSave: () => boolean;
   setAutoSaveEnabled: (enabled: boolean) => void;
+
+  sherdEvidences: Map<string, SherdEvidence>;
+  schemeEvidences: Map<string, SchemeEvidence>;
+  collaborators: Collaborator[];
+  currentCollaborator: Collaborator;
+  generatedReports: ReconstructionReport[];
+
+  getSherdEvidence: (sherdId: string) => SherdEvidence;
+  getSchemeEvidence: (schemeId: string) => SchemeEvidence;
+
+  addEvidenceSource: (targetType: 'sherd' | 'scheme', targetId: string, evidence: Omit<EvidenceSource, 'id'>) => { success: boolean; id?: string };
+  updateEvidenceSource: (targetType: 'sherd' | 'scheme', targetId: string, evidenceId: string, updates: Partial<EvidenceSource>) => { success: boolean };
+  removeEvidenceSource: (targetType: 'sherd' | 'scheme', targetId: string, evidenceId: string) => void;
+
+  addChronologyJudgment: (targetType: 'sherd' | 'scheme', targetId: string, data: Omit<ChronologyJudgment, 'id' | 'createdAt' | 'createdBy'>) => { success: boolean; id?: string };
+  updateChronologyJudgment: (targetType: 'sherd' | 'scheme', targetId: string, id: string, updates: Partial<ChronologyJudgment>) => { success: boolean };
+  removeChronologyJudgment: (targetType: 'sherd' | 'scheme', targetId: string, id: string) => void;
+
+  addStratigraphyInfo: (targetType: 'sherd' | 'scheme', targetId: string, data: Omit<StratigraphyInfo, 'id' | 'createdAt' | 'createdBy'>) => { success: boolean; id?: string };
+  updateStratigraphyInfo: (targetType: 'sherd' | 'scheme', targetId: string, id: string, updates: Partial<StratigraphyInfo>) => { success: boolean };
+  removeStratigraphyInfo: (targetType: 'sherd' | 'scheme', targetId: string, id: string) => void;
+
+  addReferenceArtifact: (targetType: 'sherd' | 'scheme', targetId: string, data: Omit<ReferenceArtifact, 'id' | 'createdAt' | 'createdBy'>) => { success: boolean; id?: string };
+  updateReferenceArtifact: (targetType: 'sherd' | 'scheme', targetId: string, id: string, updates: Partial<ReferenceArtifact>) => { success: boolean };
+  removeReferenceArtifact: (targetType: 'sherd' | 'scheme', targetId: string, id: string) => void;
+
+  addExpertOpinion: (targetType: 'sherd' | 'scheme', targetId: string, data: Omit<ExpertOpinion, 'id' | 'createdAt'>) => { success: boolean; id?: string };
+  updateExpertOpinion: (targetType: 'sherd' | 'scheme', targetId: string, id: string, updates: Partial<ExpertOpinion>) => { success: boolean };
+  removeExpertOpinion: (targetType: 'sherd' | 'scheme', targetId: string, id: string) => void;
+
+  resolveConflict: (targetType: 'sherd' | 'scheme', targetId: string, conflictId: string, resolutionNote: string) => void;
+  getTimelineEvents: (targetType: 'sherd' | 'scheme', targetId: string) => TimelineEvent[];
+  detectConflicts: (targetType: 'sherd' | 'scheme', targetId: string) => EvidenceConflict[];
+
+  setCurrentCollaborator: (collaborator: Partial<Collaborator>) => void;
+  addCollaborator: (collaborator: Omit<Collaborator, 'id'>) => { success: boolean; id?: string };
+  removeCollaborator: (id: string) => void;
+
+  generateReport: (schemeId: string, format: ReportFormat) => ReconstructionReport;
+  downloadReport: (report: ReconstructionReport) => void;
+  setSchemeReconstructionBasis: (schemeId: string, basis: string) => void;
 }
 
 const generateId = () => Math.random().toString(36).substr(2, 9);
@@ -177,6 +218,31 @@ function scheduleAutoSave(get: () => AppState) {
   }, 5000);
 }
 
+function makeHistory(
+  targetType: EditHistoryEntry['targetType'],
+  targetId: string,
+  action: EditHistoryEntry['action'],
+  fieldName: string,
+  oldValue: string,
+  newValue: string
+): EditHistoryEntry {
+  const stateStore = (globalThis as any).__appState;
+  const collaborator = stateStore?.currentCollaborator || { id: 'default-user', name: '当前用户' };
+  return {
+    id: generateId(),
+    timestamp: Date.now(),
+    userId: collaborator.id,
+    userName: collaborator.name,
+    action,
+    targetType,
+    targetId,
+    fieldName,
+    oldValue,
+    newValue,
+    summary: newValue,
+  };
+}
+
 export const useAppStore = create<AppState>((set, get) => ({
   sherds: [],
   schemes: [],
@@ -194,6 +260,1004 @@ export const useAppStore = create<AppState>((set, get) => ({
   lastAutoSaveAt: null,
   autoSaveEnabled: true,
   metricsListeners: new Set(),
+  sherdEvidences: new Map(),
+  schemeEvidences: new Map(),
+  collaborators: [
+    { id: 'default-user', name: '当前用户', role: 'lead', avatarColor: '#6366f1', lastActiveAt: Date.now() },
+  ],
+  currentCollaborator: { id: 'default-user', name: '当前用户', role: 'lead', avatarColor: '#6366f1', lastActiveAt: Date.now() },
+  generatedReports: [],
+
+  getSherdEvidence: (sherdId) => {
+    const state = get();
+    const existing = state.sherdEvidences.get(sherdId);
+    if (existing) return existing;
+    const empty: SherdEvidence = {
+      sherdId,
+      evidenceSources: [],
+      chronologyJudgments: [],
+      stratigraphyInfos: [],
+      referenceArtifacts: [],
+      expertOpinions: [],
+      conflicts: [],
+      editHistory: [],
+    };
+    return empty;
+  },
+
+  getSchemeEvidence: (schemeId) => {
+    const state = get();
+    const existing = state.schemeEvidences.get(schemeId);
+    if (existing) return existing;
+    const empty: SchemeEvidence = {
+      schemeId,
+      evidenceSources: [],
+      chronologyJudgments: [],
+      stratigraphyInfos: [],
+      referenceArtifacts: [],
+      expertOpinions: [],
+      conflicts: [],
+      editHistory: [],
+    };
+    return empty;
+  },
+
+  addEvidenceSource: (targetType, targetId, evidence) => {
+    const state = get();
+    const id = generateId();
+    const newEvidence: EvidenceSource = { ...evidence, id };
+    const addHistory = makeHistory(targetType === 'sherd' ? 'evidence' : 'evidence', id, 'create', '证据来源', '', newEvidence.title);
+
+    if (targetType === 'sherd') {
+      const ev = state.getSherdEvidence(targetId);
+      const updated: SherdEvidence = {
+        ...ev,
+        evidenceSources: [...ev.evidenceSources, newEvidence],
+        editHistory: [addHistory, ...ev.editHistory],
+        lastAnnotatedAt: Date.now(),
+        lastAnnotatedBy: state.currentCollaborator.name,
+      };
+      const newMap = new Map(state.sherdEvidences);
+      newMap.set(targetId, updated);
+      set({ sherdEvidences: newMap });
+    } else {
+      const ev = state.getSchemeEvidence(targetId);
+      const updated: SchemeEvidence = {
+        ...ev,
+        evidenceSources: [...ev.evidenceSources, newEvidence],
+        editHistory: [addHistory, ...ev.editHistory],
+        lastAnnotatedAt: Date.now(),
+        lastAnnotatedBy: state.currentCollaborator.name,
+      };
+      const newMap = new Map(state.schemeEvidences);
+      newMap.set(targetId, updated);
+      set({ schemeEvidences: newMap });
+    }
+    scheduleAutoSave(get);
+    return { success: true, id };
+  },
+
+  updateEvidenceSource: (targetType, targetId, evidenceId, updates) => {
+    const state = get();
+    let updated = false;
+    const addHistory = makeHistory(targetType === 'sherd' ? 'evidence' : 'evidence', evidenceId, 'update', '证据来源', '', updates.title || '');
+
+    if (targetType === 'sherd') {
+      const ev = state.getSherdEvidence(targetId);
+      const sources = ev.evidenceSources.map((e) => {
+        if (e.id === evidenceId) {
+          updated = true;
+          return { ...e, ...updates };
+        }
+        return e;
+      });
+      if (!updated) return { success: false };
+      const newEv: SherdEvidence = {
+        ...ev,
+        evidenceSources: sources,
+        editHistory: [addHistory, ...ev.editHistory],
+        lastAnnotatedAt: Date.now(),
+        lastAnnotatedBy: state.currentCollaborator.name,
+      };
+      const newMap = new Map(state.sherdEvidences);
+      newMap.set(targetId, newEv);
+      set({ sherdEvidences: newMap });
+    } else {
+      const ev = state.getSchemeEvidence(targetId);
+      const sources = ev.evidenceSources.map((e) => {
+        if (e.id === evidenceId) {
+          updated = true;
+          return { ...e, ...updates };
+        }
+        return e;
+      });
+      if (!updated) return { success: false };
+      const newEv: SchemeEvidence = {
+        ...ev,
+        evidenceSources: sources,
+        editHistory: [addHistory, ...ev.editHistory],
+        lastAnnotatedAt: Date.now(),
+        lastAnnotatedBy: state.currentCollaborator.name,
+      };
+      const newMap = new Map(state.schemeEvidences);
+      newMap.set(targetId, newEv);
+      set({ schemeEvidences: newMap });
+    }
+    scheduleAutoSave(get);
+    return { success: true };
+  },
+
+  removeEvidenceSource: (targetType, targetId, evidenceId) => {
+    const state = get();
+    const addHistory = makeHistory(targetType === 'sherd' ? 'evidence' : 'evidence', evidenceId, 'delete', '证据来源', '', '');
+
+    if (targetType === 'sherd') {
+      const ev = state.getSherdEvidence(targetId);
+      const newEv: SherdEvidence = {
+        ...ev,
+        evidenceSources: ev.evidenceSources.filter((e) => e.id !== evidenceId),
+        editHistory: [addHistory, ...ev.editHistory],
+        lastAnnotatedAt: Date.now(),
+        lastAnnotatedBy: state.currentCollaborator.name,
+      };
+      const newMap = new Map(state.sherdEvidences);
+      newMap.set(targetId, newEv);
+      set({ sherdEvidences: newMap });
+    } else {
+      const ev = state.getSchemeEvidence(targetId);
+      const newEv: SchemeEvidence = {
+        ...ev,
+        evidenceSources: ev.evidenceSources.filter((e) => e.id !== evidenceId),
+        editHistory: [addHistory, ...ev.editHistory],
+        lastAnnotatedAt: Date.now(),
+        lastAnnotatedBy: state.currentCollaborator.name,
+      };
+      const newMap = new Map(state.schemeEvidences);
+      newMap.set(targetId, newEv);
+      set({ schemeEvidences: newMap });
+    }
+    scheduleAutoSave(get);
+  },
+
+  addChronologyJudgment: (targetType, targetId, data) => {
+    const state = get();
+    const id = generateId();
+    const newItem: ChronologyJudgment = {
+      ...data,
+      id,
+      createdAt: Date.now(),
+      createdBy: state.currentCollaborator.name,
+    };
+    const addHistory = makeHistory('chronology', id, 'create', '年代判断', '', `${newItem.period} (${newItem.confidenceLevel})`);
+
+    if (targetType === 'sherd') {
+      const ev = state.getSherdEvidence(targetId);
+      const newEv: SherdEvidence = {
+        ...ev,
+        chronologyJudgments: [...ev.chronologyJudgments, newItem],
+        editHistory: [addHistory, ...ev.editHistory],
+        lastAnnotatedAt: Date.now(),
+        lastAnnotatedBy: state.currentCollaborator.name,
+      };
+      const newMap = new Map(state.sherdEvidences);
+      newMap.set(targetId, newEv);
+      set({ sherdEvidences: newMap });
+    } else {
+      const ev = state.getSchemeEvidence(targetId);
+      const newEv: SchemeEvidence = {
+        ...ev,
+        chronologyJudgments: [...ev.chronologyJudgments, newItem],
+        editHistory: [addHistory, ...ev.editHistory],
+        lastAnnotatedAt: Date.now(),
+        lastAnnotatedBy: state.currentCollaborator.name,
+      };
+      const newMap = new Map(state.schemeEvidences);
+      newMap.set(targetId, newEv);
+      set({ schemeEvidences: newMap });
+    }
+    state.detectConflicts(targetType, targetId);
+    scheduleAutoSave(get);
+    return { success: true, id };
+  },
+
+  updateChronologyJudgment: (targetType, targetId, id, updates) => {
+    const state = get();
+    let updated = false;
+    const addHistory = makeHistory('chronology', id, 'update', '年代判断', '', '');
+
+    if (targetType === 'sherd') {
+      const ev = state.getSherdEvidence(targetId);
+      const items = ev.chronologyJudgments.map((c) => {
+        if (c.id === id) {
+          updated = true;
+          return { ...c, ...updates };
+        }
+        return c;
+      });
+      if (!updated) return { success: false };
+      const newEv: SherdEvidence = {
+        ...ev,
+        chronologyJudgments: items,
+        editHistory: [addHistory, ...ev.editHistory],
+        lastAnnotatedAt: Date.now(),
+        lastAnnotatedBy: state.currentCollaborator.name,
+      };
+      const newMap = new Map(state.sherdEvidences);
+      newMap.set(targetId, newEv);
+      set({ sherdEvidences: newMap });
+    } else {
+      const ev = state.getSchemeEvidence(targetId);
+      const items = ev.chronologyJudgments.map((c) => {
+        if (c.id === id) {
+          updated = true;
+          return { ...c, ...updates };
+        }
+        return c;
+      });
+      if (!updated) return { success: false };
+      const newEv: SchemeEvidence = {
+        ...ev,
+        chronologyJudgments: items,
+        editHistory: [addHistory, ...ev.editHistory],
+        lastAnnotatedAt: Date.now(),
+        lastAnnotatedBy: state.currentCollaborator.name,
+      };
+      const newMap = new Map(state.schemeEvidences);
+      newMap.set(targetId, newEv);
+      set({ schemeEvidences: newMap });
+    }
+    state.detectConflicts(targetType, targetId);
+    scheduleAutoSave(get);
+    return { success: true };
+  },
+
+  removeChronologyJudgment: (targetType, targetId, id) => {
+    const state = get();
+    const addHistory = makeHistory('chronology', id, 'delete', '年代判断', '', '');
+
+    if (targetType === 'sherd') {
+      const ev = state.getSherdEvidence(targetId);
+      const newEv: SherdEvidence = {
+        ...ev,
+        chronologyJudgments: ev.chronologyJudgments.filter((c) => c.id !== id),
+        editHistory: [addHistory, ...ev.editHistory],
+        lastAnnotatedAt: Date.now(),
+        lastAnnotatedBy: state.currentCollaborator.name,
+      };
+      const newMap = new Map(state.sherdEvidences);
+      newMap.set(targetId, newEv);
+      set({ sherdEvidences: newMap });
+    } else {
+      const ev = state.getSchemeEvidence(targetId);
+      const newEv: SchemeEvidence = {
+        ...ev,
+        chronologyJudgments: ev.chronologyJudgments.filter((c) => c.id !== id),
+        editHistory: [addHistory, ...ev.editHistory],
+        lastAnnotatedAt: Date.now(),
+        lastAnnotatedBy: state.currentCollaborator.name,
+      };
+      const newMap = new Map(state.schemeEvidences);
+      newMap.set(targetId, newEv);
+      set({ schemeEvidences: newMap });
+    }
+    scheduleAutoSave(get);
+  },
+
+  addStratigraphyInfo: (targetType, targetId, data) => {
+    const state = get();
+    const id = generateId();
+    const newItem: StratigraphyInfo = {
+      ...data,
+      id,
+      createdAt: Date.now(),
+      createdBy: state.currentCollaborator.name,
+    };
+    const addHistory = makeHistory('stratigraphy', id, 'create', '地层信息', '', `层位: ${newItem.layerNumber}`);
+
+    if (targetType === 'sherd') {
+      const ev = state.getSherdEvidence(targetId);
+      const newEv: SherdEvidence = {
+        ...ev,
+        stratigraphyInfos: [...ev.stratigraphyInfos, newItem],
+        editHistory: [addHistory, ...ev.editHistory],
+        lastAnnotatedAt: Date.now(),
+        lastAnnotatedBy: state.currentCollaborator.name,
+      };
+      const newMap = new Map(state.sherdEvidences);
+      newMap.set(targetId, newEv);
+      set({ sherdEvidences: newMap });
+    } else {
+      const ev = state.getSchemeEvidence(targetId);
+      const newEv: SchemeEvidence = {
+        ...ev,
+        stratigraphyInfos: [...ev.stratigraphyInfos, newItem],
+        editHistory: [addHistory, ...ev.editHistory],
+        lastAnnotatedAt: Date.now(),
+        lastAnnotatedBy: state.currentCollaborator.name,
+      };
+      const newMap = new Map(state.schemeEvidences);
+      newMap.set(targetId, newEv);
+      set({ schemeEvidences: newMap });
+    }
+    state.detectConflicts(targetType, targetId);
+    scheduleAutoSave(get);
+    return { success: true, id };
+  },
+
+  updateStratigraphyInfo: (targetType, targetId, id, updates) => {
+    const state = get();
+    let updated = false;
+    const addHistory = makeHistory('stratigraphy', id, 'update', '地层信息', '', '');
+
+    if (targetType === 'sherd') {
+      const ev = state.getSherdEvidence(targetId);
+      const items = ev.stratigraphyInfos.map((c) => {
+        if (c.id === id) {
+          updated = true;
+          return { ...c, ...updates };
+        }
+        return c;
+      });
+      if (!updated) return { success: false };
+      const newEv: SherdEvidence = {
+        ...ev,
+        stratigraphyInfos: items,
+        editHistory: [addHistory, ...ev.editHistory],
+        lastAnnotatedAt: Date.now(),
+        lastAnnotatedBy: state.currentCollaborator.name,
+      };
+      const newMap = new Map(state.sherdEvidences);
+      newMap.set(targetId, newEv);
+      set({ sherdEvidences: newMap });
+    } else {
+      const ev = state.getSchemeEvidence(targetId);
+      const items = ev.stratigraphyInfos.map((c) => {
+        if (c.id === id) {
+          updated = true;
+          return { ...c, ...updates };
+        }
+        return c;
+      });
+      if (!updated) return { success: false };
+      const newEv: SchemeEvidence = {
+        ...ev,
+        stratigraphyInfos: items,
+        editHistory: [addHistory, ...ev.editHistory],
+        lastAnnotatedAt: Date.now(),
+        lastAnnotatedBy: state.currentCollaborator.name,
+      };
+      const newMap = new Map(state.schemeEvidences);
+      newMap.set(targetId, newEv);
+      set({ schemeEvidences: newMap });
+    }
+    state.detectConflicts(targetType, targetId);
+    scheduleAutoSave(get);
+    return { success: true };
+  },
+
+  removeStratigraphyInfo: (targetType, targetId, id) => {
+    const state = get();
+    const addHistory = makeHistory('stratigraphy', id, 'delete', '地层信息', '', '');
+
+    if (targetType === 'sherd') {
+      const ev = state.getSherdEvidence(targetId);
+      const newEv: SherdEvidence = {
+        ...ev,
+        stratigraphyInfos: ev.stratigraphyInfos.filter((c) => c.id !== id),
+        editHistory: [addHistory, ...ev.editHistory],
+        lastAnnotatedAt: Date.now(),
+        lastAnnotatedBy: state.currentCollaborator.name,
+      };
+      const newMap = new Map(state.sherdEvidences);
+      newMap.set(targetId, newEv);
+      set({ sherdEvidences: newMap });
+    } else {
+      const ev = state.getSchemeEvidence(targetId);
+      const newEv: SchemeEvidence = {
+        ...ev,
+        stratigraphyInfos: ev.stratigraphyInfos.filter((c) => c.id !== id),
+        editHistory: [addHistory, ...ev.editHistory],
+        lastAnnotatedAt: Date.now(),
+        lastAnnotatedBy: state.currentCollaborator.name,
+      };
+      const newMap = new Map(state.schemeEvidences);
+      newMap.set(targetId, newEv);
+      set({ schemeEvidences: newMap });
+    }
+    scheduleAutoSave(get);
+  },
+
+  addReferenceArtifact: (targetType, targetId, data) => {
+    const state = get();
+    const id = generateId();
+    const newItem: ReferenceArtifact = {
+      ...data,
+      id,
+      createdAt: Date.now(),
+      createdBy: state.currentCollaborator.name,
+    };
+    const addHistory = makeHistory('reference', id, 'create', '参考器物', '', `${newItem.artifactName} (${newItem.artifactType})`);
+
+    if (targetType === 'sherd') {
+      const ev = state.getSherdEvidence(targetId);
+      const newEv: SherdEvidence = {
+        ...ev,
+        referenceArtifacts: [...ev.referenceArtifacts, newItem],
+        editHistory: [addHistory, ...ev.editHistory],
+        lastAnnotatedAt: Date.now(),
+        lastAnnotatedBy: state.currentCollaborator.name,
+      };
+      const newMap = new Map(state.sherdEvidences);
+      newMap.set(targetId, newEv);
+      set({ sherdEvidences: newMap });
+    } else {
+      const ev = state.getSchemeEvidence(targetId);
+      const newEv: SchemeEvidence = {
+        ...ev,
+        referenceArtifacts: [...ev.referenceArtifacts, newItem],
+        editHistory: [addHistory, ...ev.editHistory],
+        lastAnnotatedAt: Date.now(),
+        lastAnnotatedBy: state.currentCollaborator.name,
+      };
+      const newMap = new Map(state.schemeEvidences);
+      newMap.set(targetId, newEv);
+      set({ schemeEvidences: newMap });
+    }
+    state.detectConflicts(targetType, targetId);
+    scheduleAutoSave(get);
+    return { success: true, id };
+  },
+
+  updateReferenceArtifact: (targetType, targetId, id, updates) => {
+    const state = get();
+    let updated = false;
+    const addHistory = makeHistory('reference', id, 'update', '参考器物', '', '');
+
+    if (targetType === 'sherd') {
+      const ev = state.getSherdEvidence(targetId);
+      const items = ev.referenceArtifacts.map((c) => {
+        if (c.id === id) {
+          updated = true;
+          return { ...c, ...updates };
+        }
+        return c;
+      });
+      if (!updated) return { success: false };
+      const newEv: SherdEvidence = {
+        ...ev,
+        referenceArtifacts: items,
+        editHistory: [addHistory, ...ev.editHistory],
+        lastAnnotatedAt: Date.now(),
+        lastAnnotatedBy: state.currentCollaborator.name,
+      };
+      const newMap = new Map(state.sherdEvidences);
+      newMap.set(targetId, newEv);
+      set({ sherdEvidences: newMap });
+    } else {
+      const ev = state.getSchemeEvidence(targetId);
+      const items = ev.referenceArtifacts.map((c) => {
+        if (c.id === id) {
+          updated = true;
+          return { ...c, ...updates };
+        }
+        return c;
+      });
+      if (!updated) return { success: false };
+      const newEv: SchemeEvidence = {
+        ...ev,
+        referenceArtifacts: items,
+        editHistory: [addHistory, ...ev.editHistory],
+        lastAnnotatedAt: Date.now(),
+        lastAnnotatedBy: state.currentCollaborator.name,
+      };
+      const newMap = new Map(state.schemeEvidences);
+      newMap.set(targetId, newEv);
+      set({ schemeEvidences: newMap });
+    }
+    state.detectConflicts(targetType, targetId);
+    scheduleAutoSave(get);
+    return { success: true };
+  },
+
+  removeReferenceArtifact: (targetType, targetId, id) => {
+    const state = get();
+    const addHistory = makeHistory('reference', id, 'delete', '参考器物', '', '');
+
+    if (targetType === 'sherd') {
+      const ev = state.getSherdEvidence(targetId);
+      const newEv: SherdEvidence = {
+        ...ev,
+        referenceArtifacts: ev.referenceArtifacts.filter((c) => c.id !== id),
+        editHistory: [addHistory, ...ev.editHistory],
+        lastAnnotatedAt: Date.now(),
+        lastAnnotatedBy: state.currentCollaborator.name,
+      };
+      const newMap = new Map(state.sherdEvidences);
+      newMap.set(targetId, newEv);
+      set({ sherdEvidences: newMap });
+    } else {
+      const ev = state.getSchemeEvidence(targetId);
+      const newEv: SchemeEvidence = {
+        ...ev,
+        referenceArtifacts: ev.referenceArtifacts.filter((c) => c.id !== id),
+        editHistory: [addHistory, ...ev.editHistory],
+        lastAnnotatedAt: Date.now(),
+        lastAnnotatedBy: state.currentCollaborator.name,
+      };
+      const newMap = new Map(state.schemeEvidences);
+      newMap.set(targetId, newEv);
+      set({ schemeEvidences: newMap });
+    }
+    scheduleAutoSave(get);
+  },
+
+  addExpertOpinion: (targetType, targetId, data) => {
+    const state = get();
+    const id = generateId();
+    const newItem: ExpertOpinion = {
+      ...data,
+      id,
+      createdAt: Date.now(),
+    };
+    const addHistory = makeHistory('opinion', id, 'create', '专家意见', '', `${newItem.expertName}: ${newItem.opinionType}`);
+
+    if (targetType === 'sherd') {
+      const ev = state.getSherdEvidence(targetId);
+      const newEv: SherdEvidence = {
+        ...ev,
+        expertOpinions: [...ev.expertOpinions, newItem],
+        editHistory: [addHistory, ...ev.editHistory],
+        lastAnnotatedAt: Date.now(),
+        lastAnnotatedBy: state.currentCollaborator.name,
+      };
+      const newMap = new Map(state.sherdEvidences);
+      newMap.set(targetId, newEv);
+      set({ sherdEvidences: newMap });
+    } else {
+      const ev = state.getSchemeEvidence(targetId);
+      const newEv: SchemeEvidence = {
+        ...ev,
+        expertOpinions: [...ev.expertOpinions, newItem],
+        editHistory: [addHistory, ...ev.editHistory],
+        lastAnnotatedAt: Date.now(),
+        lastAnnotatedBy: state.currentCollaborator.name,
+      };
+      const newMap = new Map(state.schemeEvidences);
+      newMap.set(targetId, newEv);
+      set({ schemeEvidences: newMap });
+    }
+    state.detectConflicts(targetType, targetId);
+    scheduleAutoSave(get);
+    return { success: true, id };
+  },
+
+  updateExpertOpinion: (targetType, targetId, id, updates) => {
+    const state = get();
+    let updated = false;
+    const addHistory = makeHistory('opinion', id, 'update', '专家意见', '', '');
+
+    if (targetType === 'sherd') {
+      const ev = state.getSherdEvidence(targetId);
+      const items = ev.expertOpinions.map((c) => {
+        if (c.id === id) {
+          updated = true;
+          return { ...c, ...updates };
+        }
+        return c;
+      });
+      if (!updated) return { success: false };
+      const newEv: SherdEvidence = {
+        ...ev,
+        expertOpinions: items,
+        editHistory: [addHistory, ...ev.editHistory],
+        lastAnnotatedAt: Date.now(),
+        lastAnnotatedBy: state.currentCollaborator.name,
+      };
+      const newMap = new Map(state.sherdEvidences);
+      newMap.set(targetId, newEv);
+      set({ sherdEvidences: newMap });
+    } else {
+      const ev = state.getSchemeEvidence(targetId);
+      const items = ev.expertOpinions.map((c) => {
+        if (c.id === id) {
+          updated = true;
+          return { ...c, ...updates };
+        }
+        return c;
+      });
+      if (!updated) return { success: false };
+      const newEv: SchemeEvidence = {
+        ...ev,
+        expertOpinions: items,
+        editHistory: [addHistory, ...ev.editHistory],
+        lastAnnotatedAt: Date.now(),
+        lastAnnotatedBy: state.currentCollaborator.name,
+      };
+      const newMap = new Map(state.schemeEvidences);
+      newMap.set(targetId, newEv);
+      set({ schemeEvidences: newMap });
+    }
+    state.detectConflicts(targetType, targetId);
+    scheduleAutoSave(get);
+    return { success: true };
+  },
+
+  removeExpertOpinion: (targetType, targetId, id) => {
+    const state = get();
+    const addHistory = makeHistory('opinion', id, 'delete', '专家意见', '', '');
+
+    if (targetType === 'sherd') {
+      const ev = state.getSherdEvidence(targetId);
+      const newEv: SherdEvidence = {
+        ...ev,
+        expertOpinions: ev.expertOpinions.filter((c) => c.id !== id),
+        editHistory: [addHistory, ...ev.editHistory],
+        lastAnnotatedAt: Date.now(),
+        lastAnnotatedBy: state.currentCollaborator.name,
+      };
+      const newMap = new Map(state.sherdEvidences);
+      newMap.set(targetId, newEv);
+      set({ sherdEvidences: newMap });
+    } else {
+      const ev = state.getSchemeEvidence(targetId);
+      const newEv: SchemeEvidence = {
+        ...ev,
+        expertOpinions: ev.expertOpinions.filter((c) => c.id !== id),
+        editHistory: [addHistory, ...ev.editHistory],
+        lastAnnotatedAt: Date.now(),
+        lastAnnotatedBy: state.currentCollaborator.name,
+      };
+      const newMap = new Map(state.schemeEvidences);
+      newMap.set(targetId, newEv);
+      set({ schemeEvidences: newMap });
+    }
+    scheduleAutoSave(get);
+  },
+
+  resolveConflict: (targetType, targetId, conflictId, resolutionNote) => {
+    const state = get();
+    const now = Date.now();
+
+    if (targetType === 'sherd') {
+      const ev = state.getSherdEvidence(targetId);
+      const conflicts = ev.conflicts.map((c) =>
+        c.id === conflictId
+          ? { ...c, resolved: true, resolvedAt: now, resolvedBy: state.currentCollaborator.name, resolutionNote }
+          : c
+      );
+      const newEv: SherdEvidence = { ...ev, conflicts };
+      const newMap = new Map(state.sherdEvidences);
+      newMap.set(targetId, newEv);
+      set({ sherdEvidences: newMap });
+    } else {
+      const ev = state.getSchemeEvidence(targetId);
+      const conflicts = ev.conflicts.map((c) =>
+        c.id === conflictId
+          ? { ...c, resolved: true, resolvedAt: now, resolvedBy: state.currentCollaborator.name, resolutionNote }
+          : c
+      );
+      const newEv: SchemeEvidence = { ...ev, conflicts };
+      const newMap = new Map(state.schemeEvidences);
+      newMap.set(targetId, newEv);
+      set({ schemeEvidences: newMap });
+    }
+    scheduleAutoSave(get);
+  },
+
+  getTimelineEvents: (targetType, targetId) => {
+    const state = get();
+    const events: TimelineEvent[] = [];
+    const ev = targetType === 'sherd' ? state.getSherdEvidence(targetId) : state.getSchemeEvidence(targetId);
+
+    ev.evidenceSources.forEach((e) => {
+      events.push({
+        id: `ev-${e.id}`,
+        date: new Date().toLocaleDateString('zh-CN'),
+        timestamp: Date.now(),
+        title: `证据来源：${e.title}`,
+        description: e.description || `${e.type} - ${e.author || '匿名'}`,
+        category: 'evidence',
+        relatedId: e.id,
+      });
+    });
+
+    ev.chronologyJudgments.forEach((c) => {
+      events.push({
+        id: `ch-${c.id}`,
+        date: new Date(c.createdAt).toLocaleDateString('zh-CN'),
+        timestamp: c.createdAt,
+        title: `年代判断：${c.period}${c.dynasty ? `（${c.dynasty}）` : ''}`,
+        description: `${c.basis} | 置信度：${c.confidenceLevel}`,
+        category: 'chronology',
+        relatedId: c.id,
+        confidenceLevel: c.confidenceLevel,
+        author: c.createdBy,
+      });
+    });
+
+    ev.stratigraphyInfos.forEach((s) => {
+      events.push({
+        id: `st-${s.id}`,
+        date: new Date(s.createdAt).toLocaleDateString('zh-CN'),
+        timestamp: s.createdAt,
+        title: `地层信息：第 ${s.layerNumber} 层`,
+        description: `${s.layerDescription || ''} 深度: ${s.depthFrom || 0}-${s.depthTo || 0}m`,
+        category: 'stratigraphy',
+        relatedId: s.id,
+        confidenceLevel: s.confidenceLevel,
+        author: s.createdBy,
+      });
+    });
+
+    ev.referenceArtifacts.forEach((r) => {
+      events.push({
+        id: `rf-${r.id}`,
+        date: new Date(r.createdAt).toLocaleDateString('zh-CN'),
+        timestamp: r.createdAt,
+        title: `参考器物：${r.artifactName}`,
+        description: `${r.artifactType} 相似度: ${r.similarityScore}%`,
+        category: 'reference',
+        relatedId: r.id,
+        confidenceLevel: r.confidenceLevel,
+        author: r.createdBy,
+      });
+    });
+
+    ev.expertOpinions.forEach((o) => {
+      events.push({
+        id: `op-${o.id}`,
+        date: new Date(o.createdAt).toLocaleDateString('zh-CN'),
+        timestamp: o.createdAt,
+        title: `专家意见：${o.expertName} - ${o.opinionType}`,
+        description: o.content,
+        category: 'expert',
+        relatedId: o.id,
+        confidenceLevel: o.confidenceLevel,
+        author: o.expertName,
+      });
+    });
+
+    ev.editHistory.forEach((h) => {
+      events.push({
+        id: `ed-${h.id}`,
+        date: new Date(h.timestamp).toLocaleDateString('zh-CN'),
+        timestamp: h.timestamp,
+        title: `修改记录：${h.targetType} - ${h.action}`,
+        description: `${h.summary || h.fieldName || ''} - ${h.userName}`,
+        category: 'edit',
+        relatedId: h.targetId,
+        author: h.userName,
+      });
+    });
+
+    return events.sort((a, b) => b.timestamp - a.timestamp);
+  },
+
+  detectConflicts: (targetType, targetId) => {
+    const state = get();
+
+    function detectForEvidence(ev: SherdEvidence | SchemeEvidence): EvidenceConflict[] {
+      const newConflicts: EvidenceConflict[] = [];
+
+      if (ev.chronologyJudgments.length >= 2) {
+        const periods = ev.chronologyJudgments.map((c) => c.period);
+        const unique = new Set(periods);
+        if (unique.size > 1) {
+          newConflicts.push({
+            id: generateId(),
+            detectedAt: Date.now(),
+            type: 'chronology_conflict',
+            severity: 'high',
+            description: `检测到年代判断冲突：存在 ${unique.size} 种不同年代结论（${periods.join(' / ')}）`,
+            involvedEvidenceIds: ev.chronologyJudgments.map((c) => c.id),
+            resolved: false,
+          });
+        }
+      }
+
+      if (ev.stratigraphyInfos.length >= 2) {
+        const layers = ev.stratigraphyInfos.map((s) => s.layerNumber);
+        const unique = new Set(layers);
+        if (unique.size > 1) {
+          newConflicts.push({
+            id: generateId(),
+            detectedAt: Date.now(),
+            type: 'stratigraphy_conflict',
+            severity: 'medium',
+            description: `检测到地层信息冲突：存在 ${unique.size} 个不同层位（${layers.join(' / ')}）`,
+            involvedEvidenceIds: ev.stratigraphyInfos.map((s) => s.id),
+            resolved: false,
+          });
+        }
+      }
+
+      const references = ev.referenceArtifacts;
+      if (references.length >= 2) {
+        const types = references.map((r) => r.artifactType);
+        const uniqueTypes = new Set(types);
+        if (uniqueTypes.size > 1) {
+          newConflicts.push({
+            id: generateId(),
+            detectedAt: Date.now(),
+            type: 'reference_conflict',
+            severity: 'low',
+            description: `参考器物类型存在差异：${types.join(' / ')}`,
+            involvedEvidenceIds: references.map((r) => r.id),
+            resolved: false,
+          });
+        }
+      }
+
+      const opinions = ev.expertOpinions;
+      const supports = opinions.filter((o) => o.opinionType === 'support').length;
+      const opposes = opinions.filter((o) => o.opinionType === 'oppose').length;
+      if (supports > 0 && opposes > 0) {
+        newConflicts.push({
+          id: generateId(),
+          detectedAt: Date.now(),
+          type: 'expert_opinion_conflict',
+          severity: 'medium',
+          description: `专家意见存在分歧：${supports} 人支持 / ${opposes} 人反对`,
+          involvedEvidenceIds: opinions.map((o) => o.id),
+          resolved: false,
+        });
+      }
+
+      const resolvedConflicts = ev.conflicts.filter((c) => c.resolved);
+      const existingUnresolved = ev.conflicts.filter((c) => !c.resolved);
+
+      const mergedUnresolved = newConflicts.map((nc) => {
+        const existing = existingUnresolved.find((e) => e.type === nc.type);
+        if (existing) {
+          return {
+            ...existing,
+            description: nc.description,
+            involvedEvidenceIds: nc.involvedEvidenceIds,
+            detectedAt: Date.now(),
+          };
+        }
+        return nc;
+      });
+
+      const newTypeSet = new Set(newConflicts.map((c) => c.type));
+      const stillValidUnresolved = existingUnresolved.filter((e) => !newTypeSet.has(e.type));
+
+      return [...mergedUnresolved, ...stillValidUnresolved, ...resolvedConflicts];
+    }
+
+    let updatedConflicts: EvidenceConflict[] = [];
+
+    if (targetType === 'sherd') {
+      const ev = state.getSherdEvidence(targetId);
+      updatedConflicts = detectForEvidence(ev);
+      const newEv: SherdEvidence = { ...ev, conflicts: updatedConflicts };
+      const newMap = new Map(state.sherdEvidences);
+      newMap.set(targetId, newEv);
+      set({ sherdEvidences: newMap });
+    } else {
+      const ev = state.getSchemeEvidence(targetId);
+      updatedConflicts = detectForEvidence(ev);
+      const newEv: SchemeEvidence = { ...ev, conflicts: updatedConflicts };
+      const newMap = new Map(state.schemeEvidences);
+      newMap.set(targetId, newEv);
+      set({ schemeEvidences: newMap });
+    }
+
+    return updatedConflicts;
+  },
+
+  setCurrentCollaborator: (collaborator) => {
+    const state = get();
+    set({ currentCollaborator: { ...state.currentCollaborator, ...collaborator, lastActiveAt: Date.now() } });
+  },
+
+  addCollaborator: (collaborator) => {
+    const state = get();
+    const id = generateId();
+    const newCol: Collaborator = { ...collaborator, id, lastActiveAt: Date.now() };
+    set({ collaborators: [...state.collaborators, newCol] });
+    return { success: true, id };
+  },
+
+  removeCollaborator: (id) => {
+    const state = get();
+    set({ collaborators: state.collaborators.filter((c) => c.id !== id) });
+  },
+
+  generateReport: (schemeId, format) => {
+    const state = get();
+    const scheme = state.schemes.find((s) => s.id === schemeId);
+    const schemeEvidence = state.getSchemeEvidence(schemeId);
+    const schemeMetrics = state.getSchemeMetrics(schemeId);
+    const schemeContributions = state.getSchemeContributions(schemeId);
+    const breakPointInfos = state.getSchemeBreakPointInfos(schemeId);
+    const schemeSherds = scheme
+      ? scheme.sherdPlacements.map((p) => {
+          const sherd = state.sherds.find((s) => s.id === p.sherdId);
+          const sherdEvidence = sherd ? state.getSherdEvidence(sherd.id) : null;
+          return { sherd, sherdEvidence };
+        })
+      : [];
+
+    const CANVAS_CENTER = { x: 400, y: 300 };
+    const CENTER_AXIS_X = CANVAS_CENTER.x;
+    let contourPoints: ContourPoint[] = [];
+    if (scheme) {
+      const allTransformedPoints: ReturnType<typeof transformKeyPoints> = [];
+      scheme.sherdPlacements.forEach((placement) => {
+        const sherd = state.sherds.find((s) => s.id === placement.sherdId);
+        if (!sherd) return;
+        allTransformedPoints.push(...transformKeyPoints(sherd, placement, CANVAS_CENTER));
+      });
+      contourPoints = buildContour(allTransformedPoints, CENTER_AXIS_X);
+    }
+
+    const content = generateReconstructionReportContent({
+      projectName: state.projectName,
+      projectMetadata: state.projectMetadata,
+      scheme,
+      schemeEvidence,
+      schemeMetrics,
+      schemeContributions,
+      breakPointInfos,
+      schemeSherds,
+      format,
+      generatedBy: state.currentCollaborator.name,
+      contourPoints,
+    });
+
+    const report: ReconstructionReport = {
+      id: generateId(),
+      generatedAt: Date.now(),
+      generatedBy: state.currentCollaborator.name,
+      format,
+      projectName: state.projectName,
+      schemeName: scheme?.name || '未知方案',
+      schemeId,
+      content,
+      metadata: {
+        version: '1.0.0',
+        sherdCount: schemeSherds.length,
+        evidenceCount: schemeEvidence.evidenceSources.length + schemeSherds.reduce((acc, s) => acc + (s.sherdEvidence?.evidenceSources.length || 0), 0),
+        expertOpinionCount: schemeEvidence.expertOpinions.length + schemeSherds.reduce((acc, s) => acc + (s.sherdEvidence?.expertOpinions.length || 0), 0),
+        chronologyCount: schemeEvidence.chronologyJudgments.length + schemeSherds.reduce((acc, s) => acc + (s.sherdEvidence?.chronologyJudgments.length || 0), 0),
+        stratigraphyCount: schemeEvidence.stratigraphyInfos.length + schemeSherds.reduce((acc, s) => acc + (s.sherdEvidence?.stratigraphyInfos.length || 0), 0),
+        referenceCount: schemeEvidence.referenceArtifacts.length + schemeSherds.reduce((acc, s) => acc + (s.sherdEvidence?.referenceArtifacts.length || 0), 0),
+      },
+    };
+
+    set({ generatedReports: [...state.generatedReports, report] });
+    return report;
+  },
+
+  downloadReport: (report) => {
+    const extMap: Record<ReportFormat, string> = { html: 'html', markdown: 'md', json: 'json', txt: 'txt' };
+    const mimeMap: Record<ReportFormat, string> = {
+      html: 'text/html',
+      markdown: 'text/markdown',
+      json: 'application/json',
+      txt: 'text/plain',
+    };
+    const blob = new Blob([report.content], { type: mimeMap[report.format] });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `考古复原报告-${report.schemeName}-${new Date().toISOString().slice(0, 10)}.${extMap[report.format]}`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  },
+
+  setSchemeReconstructionBasis: (schemeId, basis) => {
+    const state = get();
+    const ev = state.getSchemeEvidence(schemeId);
+    const newEv: SchemeEvidence = { ...ev, reconstructionBasis: basis, lastAnnotatedAt: Date.now(), lastAnnotatedBy: state.currentCollaborator.name };
+    const newMap = new Map(state.schemeEvidences);
+    newMap.set(schemeId, newEv);
+    set({ schemeEvidences: newMap });
+    scheduleAutoSave(get);
+  },
 
   addSherd: async (sherdData) => {
     const state = get();
