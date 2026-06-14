@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { AppShell, Box, Group, Text, Tabs, Container, Badge, Tooltip, ActionIcon, TextInput, Modal, Button, Stack, FileButton, Textarea, Alert, Divider, ScrollArea, Card } from '@mantine/core';
-import { IconBrush, IconMug, IconChartBar, IconEdit, IconCheck, IconFolderOpen, IconDownload, IconUpload, IconTrashX, IconDeviceFloppy, IconCloudCheck, IconCloudUpload, IconFileText, IconTimeline } from '@tabler/icons-react';
+import { IconBrush, IconMug, IconChartBar, IconEdit, IconCheck, IconFolderOpen, IconDownload, IconUpload, IconTrashX, IconDeviceFloppy, IconCloudCheck, IconCloudUpload, IconFileText, IconTimeline, IconDatabase, IconFlask, IconBulb } from '@tabler/icons-react';
 import { SherdList } from '@/components/SherdList';
 import { SherdCanvas } from '@/components/SherdCanvas';
 import { ReconstructionCanvas } from '@/components/ReconstructionCanvas';
@@ -12,6 +12,9 @@ import { EvidenceTimeline } from '@/components/EvidenceTimeline';
 import { EvidenceConflictAlert } from '@/components/EvidenceConflictAlert';
 import { ReportGenerator } from '@/components/ReportGenerator';
 import { CollaborationPanel } from '@/components/CollaborationPanel';
+import { KnowledgeBaseBrowser } from '@/components/KnowledgeBaseBrowser';
+import { SmartComparisonPanel } from '@/components/SmartComparisonPanel';
+import { RecommendationPanel } from '@/components/RecommendationPanel';
 import { useAppStore } from '@/store';
 import type { ReconstructionMetrics } from '@/types';
 
@@ -29,6 +32,7 @@ function App() {
   const setAutoSaveEnabled = useAppStore((s) => s.setAutoSaveEnabled);
   const sherds = useAppStore((s) => s.sherds);
   const schemes = useAppStore((s) => s.schemes);
+  const knowledgeBase = useAppStore((s) => s.knowledgeBase);
 
   const [editingName, setEditingName] = useState(false);
   const [tempName, setTempName] = useState(projectName);
@@ -143,6 +147,10 @@ function App() {
                 {trustedSchemes} 可信
               </Badge>
             )}
+            <Badge size="sm" variant="light" color="indigo">
+              <IconDatabase size={10} style={{ marginRight: 4 }} />
+              知识库 {knowledgeBase.length}
+            </Badge>
             <Tooltip label="保存项目">
               <ActionIcon variant="light" color="indigo" onClick={() => saveProjectToFile()}>
                 <IconDeviceFloppy size={18} />
@@ -188,10 +196,19 @@ function App() {
               复原预览
             </Tabs.Tab>
             <Tabs.Tab value="comparison" leftSection={<IconChartBar size={16} />}>
-              智能评估与方案推荐
+              智能评估
             </Tabs.Tab>
             <Tabs.Tab value="evidence" leftSection={<IconFileText size={16} />}>
               证据与报告
+            </Tabs.Tab>
+            <Tabs.Tab value="knowledgeBase" leftSection={<IconDatabase size={16} />}>
+              知识库
+            </Tabs.Tab>
+            <Tabs.Tab value="smartCompare" leftSection={<IconFlask size={16} />}>
+              智能比对
+            </Tabs.Tab>
+            <Tabs.Tab value="recommendation" leftSection={<IconBulb size={16} />}>
+              智能推荐
             </Tabs.Tab>
           </Tabs.List>
 
@@ -257,6 +274,24 @@ function App() {
                 <ReportGenerator />
               </Box>
             </Group>
+          </Tabs.Panel>
+
+          <Tabs.Panel value="knowledgeBase">
+            <Container size="xl" py="md">
+              <KnowledgeBaseBrowser />
+            </Container>
+          </Tabs.Panel>
+
+          <Tabs.Panel value="smartCompare">
+            <Container size="xl" py="md">
+              <SmartComparisonPanel />
+            </Container>
+          </Tabs.Panel>
+
+          <Tabs.Panel value="recommendation">
+            <Container size="xl" py="md">
+              <RecommendationPanel />
+            </Container>
           </Tabs.Panel>
         </Tabs>
       </AppShell.Main>

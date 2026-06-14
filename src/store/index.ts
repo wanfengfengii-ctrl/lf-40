@@ -1,7 +1,17 @@
 import { create } from 'zustand';
-import type { Sherd, ReconstructionScheme, SherdPlacement, ProjectData, SchemeVersion, ReconstructionMetrics, BatchImportResult, MetricsRefreshEvent, MetricsContribution, BreakPointInfo, MetricsWeightConfig, SherdEvidence, SchemeEvidence, EvidenceSource, ChronologyJudgment, StratigraphyInfo, ReferenceArtifact, ExpertOpinion, EditHistoryEntry, EvidenceConflict, Collaborator, TimelineEvent, ReconstructionReport, ReportFormat, ContourPoint } from '@/types';
+import type { Sherd, ReconstructionScheme, SherdPlacement, ProjectData, SchemeVersion, ReconstructionMetrics, BatchImportResult, MetricsRefreshEvent, MetricsContribution, BreakPointInfo, MetricsWeightConfig, SherdEvidence, SchemeEvidence, EvidenceSource, ChronologyJudgment, StratigraphyInfo, ReferenceArtifact, ExpertOpinion, EditHistoryEntry, EvidenceConflict, Collaborator, TimelineEvent, ReconstructionReport, ReportFormat, ContourPoint, KnowledgeBaseEntry, KnowledgeBaseSearchFilter, KnowledgeBaseSearchResult, KnowledgeBaseStats, SimilarityMatchResult, RecommendationResult, FeatureWeightConfig, SherdFeatureVector } from '@/types';
+import { DEFAULT_FEATURE_WEIGHTS } from '@/types';
 import { validateSherdNumber, validateScheme, transformKeyPoints, buildContour, calculateMetricsWithContributions, exportProject, importProject, downloadProjectFile, checkDuplicateSherd, DEFAULT_WEIGHT_CONFIG, generateReconstructionReportContent } from '@/utils/reconstruction';
 import { computeImageHash } from '@/utils/geometry';
+import {
+  searchKnowledgeBase,
+  calculateStats,
+  findSimilarEntries,
+  generateRecommendations,
+  importProjectToKnowledgeBase,
+  extractFeatureVectorFromSherd,
+  extractFeatureVectorFromScheme,
+} from '@/utils/knowledgeBase';
 
 type MetricsListener = (event: MetricsRefreshEvent) => void;
 
@@ -115,6 +125,34 @@ interface AppState {
   generateReport: (schemeId: string, format: ReportFormat) => ReconstructionReport;
   downloadReport: (report: ReconstructionReport) => void;
   setSchemeReconstructionBasis: (schemeId: string, basis: string) => void;
+
+  knowledgeBase: KnowledgeBaseEntry[];
+  knowledgeBaseStats: KnowledgeBaseStats | null;
+  featureWeightConfig: FeatureWeightConfig;
+  lastKnowledgeBaseUpdate: number;
+
+  addToKnowledgeBase: (entry: Omit<KnowledgeBaseEntry, 'id' | 'importedAt' | 'viewCount' | 'referenceCount'>) => { success: boolean; id?: string };
+  removeFromKnowledgeBase: (entryId: string) => void;
+  updateKnowledgeBaseEntry: (entryId: string, updates: Partial<KnowledgeBaseEntry>) => { success: boolean };
+  importCurrentProjectToKnowledgeBase: () => { success: boolean; importedCount?: number; skippedCount?: number; error?: string };
+  importProjectFileToKnowledgeBase: (file: File) => Promise<{ success: boolean; importedCount?: number; skippedCount?: number; error?: string }>;
+  searchKnowledgeBase: (filter: KnowledgeBaseSearchFilter) => KnowledgeBaseSearchResult;
+  findSimilarEntriesToSherd: (sherdId: string, topN?: number) => SimilarityMatchResult[];
+  findSimilarEntriesToScheme: (schemeId: string, topN?: number) => SimilarityMatchResult[];
+  getRecommendationsForSherd: (sherdId: string) => RecommendationResult[];
+  getRecommendationsForScheme: (schemeId: string) => RecommendationResult[];
+  getFeatureVectorForSherd: (sherdId: string) => SherdFeatureVector;
+  getFeatureVectorForScheme: (schemeId: string) => SherdFeatureVector;
+  incrementViewCount: (entryId: string) => void;
+  incrementReferenceCount: (entryId: string) => void;
+  toggleKnowledgeBaseEntryTrusted: (entryId: string) => void;
+  setFeatureWeightConfig: (config: Partial<FeatureWeightConfig>) => void;
+  refreshKnowledgeBaseStats: () => void;
+  getUniqueProjects: () => { id: string; name: string }[];
+  getUniquePeriods: () => string[];
+  loadKnowledgeBaseFromLocal: () => boolean;
+  saveKnowledgeBaseToLocal: () => void;
+  clearKnowledgeBase: () => void;
 }
 
 const generateId = () => Math.random().toString(36).substr(2, 9);
@@ -267,6 +305,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   ],
   currentCollaborator: { id: 'default-user', name: '当前用户', role: 'lead', avatarColor: '#6366f1', lastActiveAt: Date.now() },
   generatedReports: [],
+  knowledgeBase: [],
+  knowledgeBaseStats: null,
+  featureWeightConfig: { ...DEFAULT_FEATURE_WEIGHTS },
+  lastKnowledgeBaseUpdate: 0,
 
   getSherdEvidence: (sherdId) => {
     const state = get();
@@ -1941,4 +1983,302 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   setAutoSaveEnabled: (enabled) => set({ autoSaveEnabled: enabled }),
+
+  addToKnowledgeBase: (entryData) => {
+    const state = get();
+    const id = generateId();
+    const newEntry: KnowledgeBaseEntry = {
+      ...entryData,
+      id,
+      importedAt: Date.now(),
+      viewCount: 0,
+      referenceCount: 0,
+    };
+    set({
+      knowledgeBase: [...state.knowledgeBase, newEntry],
+      lastKnowledgeBaseUpdate: Date.now(),
+    });
+    get().refreshKnowledgeBaseStats();
+    get().saveKnowledgeBaseToLocal();
+    return { success: true, id };
+  },
+
+  removeFromKnowledgeBase: (entryId) => {
+    const state = get();
+    set({
+      knowledgeBase: state.knowledgeBase.filter((e) => e.id !== entryId),
+      lastKnowledgeBaseUpdate: Date.now(),
+    });
+    get().refreshKnowledgeBaseStats();
+    get().saveKnowledgeBaseToLocal();
+  },
+
+  updateKnowledgeBaseEntry: (entryId, updates) => {
+    const state = get();
+    const entry = state.knowledgeBase.find((e) => e.id === entryId);
+    if (!entry) return { success: false };
+    const updated = { ...entry, ...updates };
+    set({
+      knowledgeBase: state.knowledgeBase.map((e) => (e.id === entryId ? updated : e)),
+      lastKnowledgeBaseUpdate: Date.now(),
+    });
+    get().saveKnowledgeBaseToLocal();
+    return { success: true };
+  },
+
+  importCurrentProjectToKnowledgeBase: () => {
+    const state = get();
+    if (state.sherds.length === 0 && state.schemes.length === 0) {
+      return { success: false, error: '当前项目没有数据可导入' };
+    }
+    const projectData: ProjectData = {
+      version: '1.0.0',
+      name: state.projectName,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      sherds: state.sherds,
+      schemes: state.schemes,
+      metadata: state.projectMetadata,
+    };
+    const result = importProjectToKnowledgeBase(
+      projectData,
+      state.knowledgeBase,
+      state.getSherdEvidence,
+      state.getSchemeEvidence,
+      state.getSchemeMetrics,
+      () => state.generatedReports
+    );
+    if (result.importedCount > 0) {
+      set({
+        knowledgeBase: [...state.knowledgeBase, ...result.entries],
+        lastKnowledgeBaseUpdate: Date.now(),
+      });
+      get().refreshKnowledgeBaseStats();
+      get().saveKnowledgeBaseToLocal();
+    }
+    return { success: true, importedCount: result.importedCount, skippedCount: result.skippedCount };
+  },
+
+  importProjectFileToKnowledgeBase: async (file) => {
+    try {
+      const text = await file.text();
+      const data = JSON.parse(text);
+      const importResult = importProject(data);
+      if (!importResult.valid || !importResult.data) {
+        return { success: false, error: importResult.error || '项目文件无效' };
+      }
+      const state = get();
+      const result = importProjectToKnowledgeBase(
+        importResult.data,
+        state.knowledgeBase,
+        state.getSherdEvidence,
+        state.getSchemeEvidence,
+        state.getSchemeMetrics,
+        () => state.generatedReports
+      );
+      if (result.importedCount > 0) {
+        set({
+          knowledgeBase: [...state.knowledgeBase, ...result.entries],
+          lastKnowledgeBaseUpdate: Date.now(),
+        });
+        get().refreshKnowledgeBaseStats();
+        get().saveKnowledgeBaseToLocal();
+      }
+      return { success: true, importedCount: result.importedCount, skippedCount: result.skippedCount };
+    } catch (e) {
+      return {
+        success: false,
+        error: `导入失败: ${e instanceof Error ? e.message : String(e)}`,
+      };
+    }
+  },
+
+  searchKnowledgeBase: (filter) => {
+    const state = get();
+    return searchKnowledgeBase(state.knowledgeBase, filter);
+  },
+
+  findSimilarEntriesToSherd: (sherdId, topN = 10) => {
+    const state = get();
+    const sherd = state.sherds.find((s) => s.id === sherdId);
+    if (!sherd) return [];
+    const sherdEvidence = state.getSherdEvidence(sherdId);
+    const metrics = state.getSchemeMetrics(state.activeSchemeId || '') || undefined;
+    const fv = extractFeatureVectorFromSherd(sherd, sherdEvidence, metrics);
+    return findSimilarEntries(fv, sherdId, 'current_sherd', state.knowledgeBase, state.featureWeightConfig, topN);
+  },
+
+  findSimilarEntriesToScheme: (schemeId, topN = 10) => {
+    const state = get();
+    const scheme = state.schemes.find((s) => s.id === schemeId);
+    if (!scheme) return [];
+    const schemeEvidence = state.getSchemeEvidence(schemeId);
+    const metrics = state.getSchemeMetrics(schemeId) || undefined;
+    const fv = extractFeatureVectorFromScheme(scheme, schemeEvidence, metrics);
+    return findSimilarEntries(fv, schemeId, 'current_scheme', state.knowledgeBase, state.featureWeightConfig, topN);
+  },
+
+  getRecommendationsForSherd: (sherdId) => {
+    const state = get();
+    const sherd = state.sherds.find((s) => s.id === sherdId);
+    if (!sherd) return [];
+    const sherdEvidence = state.getSherdEvidence(sherdId);
+    const metrics = state.getSchemeMetrics(state.activeSchemeId || '') || undefined;
+    const fv = extractFeatureVectorFromSherd(sherd, sherdEvidence, metrics);
+    return generateRecommendations(fv, sherdId, 'current_sherd', state.knowledgeBase, state.featureWeightConfig);
+  },
+
+  getRecommendationsForScheme: (schemeId) => {
+    const state = get();
+    const scheme = state.schemes.find((s) => s.id === schemeId);
+    if (!scheme) return [];
+    const schemeEvidence = state.getSchemeEvidence(schemeId);
+    const metrics = state.getSchemeMetrics(schemeId) || undefined;
+    const fv = extractFeatureVectorFromScheme(scheme, schemeEvidence, metrics);
+    return generateRecommendations(fv, schemeId, 'current_scheme', state.knowledgeBase, state.featureWeightConfig);
+  },
+
+  getFeatureVectorForSherd: (sherdId) => {
+    const state = get();
+    const sherd = state.sherds.find((s) => s.id === sherdId);
+    if (!sherd) {
+      return {
+        artifactType: null,
+        period: null,
+        dynasty: null,
+        layerNumber: null,
+        patternStyle: null,
+        thickness: null,
+        rimCurvature: null,
+        estimatedRimDiameter: null,
+        estimatedHeight: null,
+        wallThickness: null,
+      };
+    }
+    const sherdEvidence = state.getSherdEvidence(sherdId);
+    const metrics = state.getSchemeMetrics(state.activeSchemeId || '') || undefined;
+    return extractFeatureVectorFromSherd(sherd, sherdEvidence, metrics);
+  },
+
+  getFeatureVectorForScheme: (schemeId) => {
+    const state = get();
+    const scheme = state.schemes.find((s) => s.id === schemeId);
+    if (!scheme) {
+      return {
+        artifactType: null,
+        period: null,
+        dynasty: null,
+        layerNumber: null,
+        patternStyle: null,
+        thickness: null,
+        rimCurvature: null,
+        estimatedRimDiameter: null,
+        estimatedHeight: null,
+        wallThickness: null,
+      };
+    }
+    const schemeEvidence = state.getSchemeEvidence(schemeId);
+    const metrics = state.getSchemeMetrics(schemeId) || undefined;
+    return extractFeatureVectorFromScheme(scheme, schemeEvidence, metrics);
+  },
+
+  incrementViewCount: (entryId) => {
+    const state = get();
+    set({
+      knowledgeBase: state.knowledgeBase.map((e) =>
+        e.id === entryId ? { ...e, viewCount: e.viewCount + 1 } : e
+      ),
+    });
+  },
+
+  incrementReferenceCount: (entryId) => {
+    const state = get();
+    set({
+      knowledgeBase: state.knowledgeBase.map((e) =>
+        e.id === entryId ? { ...e, referenceCount: e.referenceCount + 1 } : e
+      ),
+    });
+    get().saveKnowledgeBaseToLocal();
+  },
+
+  toggleKnowledgeBaseEntryTrusted: (entryId) => {
+    const state = get();
+    set({
+      knowledgeBase: state.knowledgeBase.map((e) =>
+        e.id === entryId ? { ...e, isTrusted: !e.isTrusted } : e
+      ),
+      lastKnowledgeBaseUpdate: Date.now(),
+    });
+    get().saveKnowledgeBaseToLocal();
+  },
+
+  setFeatureWeightConfig: (config) => {
+    const state = get();
+    set({
+      featureWeightConfig: { ...state.featureWeightConfig, ...config },
+    });
+  },
+
+  refreshKnowledgeBaseStats: () => {
+    const state = get();
+    const stats = calculateStats(state.knowledgeBase);
+    set({ knowledgeBaseStats: stats });
+  },
+
+  getUniqueProjects: () => {
+    const state = get();
+    const projects = new Map<string, string>();
+    state.knowledgeBase.forEach((e) => {
+      projects.set(e.sourceProjectId, e.sourceProjectName);
+    });
+    return Array.from(projects.entries()).map(([id, name]) => ({ id, name }));
+  },
+
+  getUniquePeriods: () => {
+    const state = get();
+    const periods = new Set<string>();
+    state.knowledgeBase.forEach((e) => {
+      if (e.featureVector.period) {
+        periods.add(e.featureVector.period);
+      }
+    });
+    return Array.from(periods).sort();
+  },
+
+  loadKnowledgeBaseFromLocal: () => {
+    try {
+      const saved = localStorage.getItem('pottery-knowledge-base');
+      if (!saved) return false;
+      const data = JSON.parse(saved);
+      set({
+        knowledgeBase: data,
+        lastKnowledgeBaseUpdate: Date.now(),
+      });
+      get().refreshKnowledgeBaseStats();
+      return true;
+    } catch (e) {
+      console.warn('Failed to load knowledge base:', e);
+      return false;
+    }
+  },
+
+  saveKnowledgeBaseToLocal: () => {
+    const state = get();
+    try {
+      localStorage.setItem('pottery-knowledge-base', JSON.stringify(state.knowledgeBase));
+    } catch (e) {
+      console.warn('Failed to save knowledge base:', e);
+    }
+  },
+
+  clearKnowledgeBase: () => {
+    set({
+      knowledgeBase: [],
+      knowledgeBaseStats: null,
+      lastKnowledgeBaseUpdate: Date.now(),
+    });
+    try {
+      localStorage.removeItem('pottery-knowledge-base');
+    } catch { /* ignore */ }
+  },
 }));

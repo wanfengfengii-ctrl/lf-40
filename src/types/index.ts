@@ -332,3 +332,207 @@ export interface TimelineEvent {
   confidenceLevel?: ConfidenceLevel;
   author?: string;
 }
+
+export type ArtifactType = 'jar' | 'pot' | 'bowl' | 'cup' | 'vase' | 'plate' | 'dish' | 'tripod' | 'other';
+export type RimCurvature = 'straight' | 'slightly_inward' | 'strongly_inward' | 'slightly_outward' | 'strongly_outward' | 'flared';
+export type PatternStyle = 'string' | 'basket' | 'cord' | 'geometric' | 'floral' | 'animal' | 'human' | 'plain' | 'painted' | 'carved' | 'incised' | 'stamped';
+
+export interface SherdFeatureVector {
+  artifactType: ArtifactType | null;
+  period: string | null;
+  dynasty: string | null;
+  layerNumber: string | null;
+  patternStyle: PatternStyle | null;
+  thickness: number | null;
+  rimCurvature: RimCurvature | null;
+  estimatedRimDiameter: number | null;
+  estimatedHeight: number | null;
+  wallThickness: number | null;
+}
+
+export interface KnowledgeBaseEntry {
+  id: string;
+  entryType: 'sherd' | 'scheme' | 'report' | 'evidence_chain';
+  sourceProjectId: string;
+  sourceProjectName: string;
+  sourceProjectMetadata?: ProjectData['metadata'];
+  title: string;
+  description: string;
+  createdAt: number;
+  importedAt: number;
+  tags: string[];
+  featureVector: SherdFeatureVector;
+  sherd?: Sherd;
+  sherdEvidence?: SherdEvidence;
+  scheme?: ReconstructionScheme;
+  schemeEvidence?: SchemeEvidence;
+  schemeMetrics?: ReconstructionMetrics;
+  report?: ReconstructionReport;
+  evidenceChain?: {
+    evidenceSources: EvidenceSource[];
+    chronologyJudgments: ChronologyJudgment[];
+    stratigraphyInfos: StratigraphyInfo[];
+    referenceArtifacts: ReferenceArtifact[];
+    expertOpinions: ExpertOpinion[];
+  };
+  isTrusted: boolean;
+  viewCount: number;
+  referenceCount: number;
+}
+
+export interface KnowledgeBaseSearchFilter {
+  keyword?: string;
+  artifactTypes?: ArtifactType[];
+  periods?: string[];
+  dynasties?: string[];
+  layerNumbers?: string[];
+  patternStyles?: PatternStyle[];
+  thicknessRange?: { min: number; max: number };
+  rimCurvatures?: RimCurvature[];
+  rimDiameterRange?: { min: number; max: number };
+  heightRange?: { min: number; max: number };
+  entryTypes?: Array<'sherd' | 'scheme' | 'report' | 'evidence_chain'>;
+  sourceProjectIds?: string[];
+  isTrustedOnly?: boolean;
+  dateRange?: { start: number; end: number };
+  sortBy?: 'relevance' | 'similarity' | 'date' | 'viewCount' | 'referenceCount';
+  sortAsc?: boolean;
+  page?: number;
+  pageSize?: number;
+}
+
+export interface SimilarityDimensionScore {
+  dimension: 'type' | 'period' | 'stratigraphy' | 'pattern' | 'thickness' | 'rimCurvature' | 'size';
+  score: number;
+  weight: number;
+  normalizedScore: number;
+  description: string;
+}
+
+export interface SimilarityMatchResult {
+  targetId: string;
+  targetType: 'current_sherd' | 'current_scheme';
+  matchedEntryId: string;
+  matchedEntry: KnowledgeBaseEntry;
+  overallSimilarity: number;
+  dimensionScores: SimilarityDimensionScore[];
+  matchingFeatures: string[];
+  differingFeatures: string[];
+  matchedAt: number;
+}
+
+export interface EvidenceCitation {
+  id: string;
+  entryId: string;
+  entryTitle: string;
+  sourceProjectName: string;
+  evidenceType: EvidenceType | 'scheme' | 'sherd';
+  description: string;
+  relevance: number;
+  pageReference?: string;
+  url?: string;
+}
+
+export interface RecommendationResult {
+  id: string;
+  recommendationType: 'reconstruction_scheme' | 'reference_artifact' | 'evidence_combination' | 'expert_opinion';
+  targetId: string;
+  targetType: 'current_sherd' | 'current_scheme';
+  recommendedEntryId: string;
+  recommendedEntry: KnowledgeBaseEntry;
+  recommendationScore: number;
+  confidenceLevel: ConfidenceLevel;
+  recommendationReasons: string[];
+  detailedExplanation: string;
+  similarityScores: SimilarityDimensionScore[];
+  evidenceCitations: EvidenceCitation[];
+  supportingEntries: {
+    entryId: string;
+    entryTitle: string;
+    sourceProjectName: string;
+    relevance: number;
+  }[];
+  generatedAt: number;
+  isApplied: boolean;
+}
+
+export interface KnowledgeBaseStats {
+  totalEntries: number;
+  sherdCount: number;
+  schemeCount: number;
+  reportCount: number;
+  evidenceChainCount: number;
+  projectCount: number;
+  artifactTypeDistribution: Record<ArtifactType, number>;
+  periodDistribution: Record<string, number>;
+  patternStyleDistribution: Record<PatternStyle, number>;
+  trustedEntryCount: number;
+  totalViewCount: number;
+  totalReferenceCount: number;
+  lastUpdated: number;
+}
+
+export interface KnowledgeBaseSearchResult {
+  entries: KnowledgeBaseEntry[];
+  total: number;
+  page: number;
+  pageSize: number;
+  stats: KnowledgeBaseStats;
+}
+
+export interface FeatureWeightConfig {
+  typeWeight: number;
+  periodWeight: number;
+  stratigraphyWeight: number;
+  patternWeight: number;
+  thicknessWeight: number;
+  rimCurvatureWeight: number;
+  sizeWeight: number;
+}
+
+export const DEFAULT_FEATURE_WEIGHTS: FeatureWeightConfig = {
+  typeWeight: 0.20,
+  periodWeight: 0.18,
+  stratigraphyWeight: 0.15,
+  patternWeight: 0.18,
+  thicknessWeight: 0.12,
+  rimCurvatureWeight: 0.12,
+  sizeWeight: 0.05,
+};
+
+export const ARTIFACT_TYPE_LABELS: Record<ArtifactType, string> = {
+  jar: '罐',
+  pot: '釜',
+  bowl: '碗',
+  cup: '杯',
+  vase: '瓶',
+  plate: '盘',
+  dish: '碟',
+  tripod: '鼎',
+  other: '其他',
+};
+
+export const RIM_CURVATURE_LABELS: Record<RimCurvature, string> = {
+  straight: '直口',
+  slightly_inward: '微敛',
+  strongly_inward: '敛口',
+  slightly_outward: '微撇',
+  strongly_outward: '撇口',
+  flared: '敞口',
+};
+
+export const PATTERN_STYLE_LABELS: Record<PatternStyle, string> = {
+  string: '绳纹',
+  basket: '篮纹',
+  cord: '弦纹',
+  geometric: '几何纹',
+  floral: '花卉纹',
+  animal: '动物纹',
+  human: '人物纹',
+  plain: '素面',
+  painted: '彩绘',
+  carved: '雕刻',
+  incised: '刻划',
+  stamped: '戳印',
+};
+
