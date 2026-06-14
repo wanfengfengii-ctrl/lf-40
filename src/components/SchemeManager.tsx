@@ -25,7 +25,6 @@ import {
   IconAlertTriangle,
   IconRotate,
   IconZoomIn,
-  IconArrowsMove,
 } from '@tabler/icons-react';
 import { useState } from 'react';
 
@@ -45,6 +44,7 @@ export function SchemeManager() {
   const [modalOpen, setModalOpen] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [editingSchemeId, setEditingSchemeId] = useState<string | null>(null);
+  const [trustedError, setTrustedError] = useState<string | null>(null);
 
   const activeScheme = schemes.find((s) => s.id === activeSchemeId);
 
@@ -207,11 +207,28 @@ export function SchemeManager() {
                   size="sm"
                   label="可信复原"
                   checked={activeScheme.isTrusted}
-                  onChange={() => toggleSchemeTrusted(activeScheme.id)}
+                  onChange={() => {
+                    setTrustedError(null);
+                    const result = toggleSchemeTrusted(activeScheme.id);
+                    if (!result.success) {
+                      setTrustedError(result.error || '操作失败');
+                    }
+                  }}
                   disabled={activeScheme.sherdPlacements.length === 0}
                 />
               </Tooltip>
             </Group>
+
+            {trustedError && (
+              <Alert
+                icon={<IconAlertTriangle size={14} />}
+                color="yellow"
+                onClose={() => setTrustedError(null)}
+                withCloseButton
+              >
+                <Text size="xs">{trustedError}</Text>
+              </Alert>
+            )}
 
             <ScrollArea h={200} type="never">
               <Stack gap="sm">
@@ -236,54 +253,77 @@ export function SchemeManager() {
                             <IconTrash size={12} />
                           </ActionIcon>
                         </Group>
-                        <Group grow gap="xs">
-                          <Tooltip label="旋转角度">
-                            <NumberInput
-                              size="xs"
-                              min={-180}
-                              max={180}
-                              decimalScale={0}
-                              value={Math.round(placement.rotation)}
-                              onChange={(v) =>
-                                updateSherdPlacement(activeScheme.id, placement.sherdId, {
-                                  rotation: typeof v === 'number' ? v : 0,
-                                })
-                              }
-                              leftSection={<IconRotate size={12} />}
-                            />
-                          </Tooltip>
-                          <Tooltip label="缩放比例">
-                            <NumberInput
-                              size="xs"
-                              min={0.1}
-                              max={5}
-                              decimalScale={2}
-                              step={0.1}
-                              value={Number(placement.scale.toFixed(2))}
-                              onChange={(v) =>
-                                updateSherdPlacement(activeScheme.id, placement.sherdId, {
-                                  scale: typeof v === 'number' ? v : 1,
-                                })
-                              }
-                              leftSection={<IconZoomIn size={12} />}
-                            />
-                          </Tooltip>
-                          <Tooltip label="X偏移">
-                            <NumberInput
-                              size="xs"
-                              min={-500}
-                              max={500}
-                              decimalScale={0}
-                              value={Math.round(placement.offsetX)}
-                              onChange={(v) =>
-                                updateSherdPlacement(activeScheme.id, placement.sherdId, {
-                                  offsetX: typeof v === 'number' ? v : 0,
-                                })
-                              }
-                              leftSection={<IconArrowsMove size={12} />}
-                            />
-                          </Tooltip>
-                        </Group>
+                        <Stack gap="xs">
+                          <Group grow gap="xs">
+                            <Tooltip label="旋转角度">
+                              <NumberInput
+                                size="xs"
+                                min={-180}
+                                max={180}
+                                decimalScale={0}
+                                value={Math.round(placement.rotation)}
+                                onChange={(v) =>
+                                  updateSherdPlacement(activeScheme.id, placement.sherdId, {
+                                    rotation: typeof v === 'number' ? v : 0,
+                                  })
+                                }
+                                leftSection={<IconRotate size={12} />}
+                              />
+                            </Tooltip>
+                            <Tooltip label="缩放比例">
+                              <NumberInput
+                                size="xs"
+                                min={0.1}
+                                max={5}
+                                decimalScale={2}
+                                step={0.1}
+                                value={Number(placement.scale.toFixed(2))}
+                                onChange={(v) =>
+                                  updateSherdPlacement(activeScheme.id, placement.sherdId, {
+                                    scale: typeof v === 'number' ? v : 1,
+                                  })
+                                }
+                                leftSection={<IconZoomIn size={12} />}
+                              />
+                            </Tooltip>
+                          </Group>
+                          <Group grow gap="xs">
+                            <Tooltip label="X 偏移（水平）">
+                              <NumberInput
+                                size="xs"
+                                min={-500}
+                                max={500}
+                                decimalScale={0}
+                                value={Math.round(placement.offsetX)}
+                                onChange={(v) =>
+                                  updateSherdPlacement(activeScheme.id, placement.sherdId, {
+                                    offsetX: typeof v === 'number' ? v : 0,
+                                  })
+                                }
+                                leftSection={
+                                  <Text size="10" fw={700} c="dimmed" style={{ width: 12, textAlign: 'center' }}>X</Text>
+                                }
+                              />
+                            </Tooltip>
+                            <Tooltip label="Y 偏移（垂直）">
+                              <NumberInput
+                                size="xs"
+                                min={-500}
+                                max={500}
+                                decimalScale={0}
+                                value={Math.round(placement.offsetY)}
+                                onChange={(v) =>
+                                  updateSherdPlacement(activeScheme.id, placement.sherdId, {
+                                    offsetY: typeof v === 'number' ? v : 0,
+                                  })
+                                }
+                                leftSection={
+                                  <Text size="10" fw={700} c="dimmed" style={{ width: 12, textAlign: 'center' }}>Y</Text>
+                                }
+                              />
+                            </Tooltip>
+                          </Group>
+                        </Stack>
                       </Card>
                     );
                   })

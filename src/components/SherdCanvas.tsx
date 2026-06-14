@@ -229,10 +229,28 @@ export function SherdCanvas() {
     if (!activeSherd || !fabricCanvasRef.current || !fabImageRef.current) return;
     const canvas = fabricCanvasRef.current;
     const img = fabImageRef.current;
+    const imgScale = img.scaleX || 1;
+    const newLeft = (canvas.width! - activeSherd.image.width * imgScale) / 2;
+    const newTop = (canvas.height! - activeSherd.image.height * imgScale) / 2;
+
     img.set({
-      left: (canvas.width! - activeSherd.image.width * (img.scaleX || 1)) / 2,
-      top: (canvas.height! - activeSherd.image.height * (img.scaleY || 1)) / 2,
+      left: newLeft,
+      top: newTop,
     });
+
+    canvas.forEachObject((obj) => {
+      const circle = obj as FabricCircleWithData;
+      if (circle.pointId) {
+        const kp = activeSherd.keyPoints.find((k) => k.id === circle.pointId);
+        if (kp) {
+          circle.set({
+            left: newLeft + kp.x * imgScale,
+            top: newTop + kp.y * imgScale,
+          });
+        }
+      }
+    });
+
     canvas.renderAll();
   };
 
