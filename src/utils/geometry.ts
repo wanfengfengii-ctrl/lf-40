@@ -80,7 +80,7 @@ export function detectContourBreaks(points: ContourPoint[], threshold: number = 
     const prev = points[i - 1];
     const curr = points[i];
     if (distance(prev, curr) > threshold) {
-      breaks.push(curr);
+      breaks.push({ ...curr, isBreakPoint: true });
     }
   }
   return breaks;
@@ -138,4 +138,151 @@ export function validateScale(scale: number): ValidationResult {
     errors,
     warnings,
   };
+}
+
+export async function computeImageHash(dataUrl: string): Promise<string> {
+  const img = new Image();
+  img.crossOrigin = 'anonymous';
+  await new Promise<void>((resolve, reject) => {
+    img.onload = () => resolve();
+    img.onerror = () => reject(new Error('Failed to load image'));
+    img.src = dataUrl;
+  });
+
+  const canvas = document.createElement('canvas');
+  const size = 16;
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return dataUrl.substring(0, 100);
+
+  ctx.drawImage(img, 0, 0, size, size);
+  const imageData = ctx.getImageData(0, 0, size, size).data;
+
+  const grayValues: number[] = [];
+  for (let i = 0; i < imageData.length; i += 4) {
+    const gray = (imageData[i] + imageData[i + 1] + imageData[i + 2]) / 3;
+    grayValues.push(gray);
+  }
+
+  const avgGray = grayValues.reduce((a, b) => a + b, 0) / grayValues.length;
+
+  let hash = '';
+  for (let i = 0; i < grayValues.length; i++) {
+    hash += grayValues[i] >= avgGray ? '1' : '0';
+  }
+
+  return hash;
+}
+
+export function hammingDistance(hash1: string, hash2: string): number {
+  let distance = 0;
+  const minLen = Math.min(hash1.length, hash2.length);
+  for (let i = 0; i < minLen; i++) {
+    if (hash1[i] !== hash2[i]) distance++;
+  }
+  return distance + Math.abs(hash1.length - hash2.length);
+}
+
+export function isSimilarImage(hash1: string, hash2: string, threshold: number = 10): boolean {
+  return hammingDistance(hash1, hash2) <= threshold;
+}
+
+export function calculateThicknessConsistency(
+  thicknesses: number[]
+): { score: number; avgThickness: number; stdDev: number; maxDeviation: number } {
+  if (thicknesses.length === 0) return { score: 0, avgThickness: 0, stdDev: 0, maxDeviation: 0 };
+
+  const avgThickness = thicknesses.reduce((a, b) => a + b, 0) / thicknesses.length;
+  const variance = thicknesses.reduce((acc, t) => acc + (t - avgThickness) ** 2, 0) / thicknesses.length;
+  const stdDev = Math.sqrt(variance);
+  const maxDeviation = Math.max(...thicknesses.map(t => Math.abs(t - avgThickness)));
+
+  const coefficientOfVariation = avgThickness > 0 ? stdDev / avgThickness : 1;
+  let score = Math.max(0, 100 - coefficientOfVariation * 100 * 2.5);
+
+  if (thicknesses.length >= 3 && maxDeviation / avgThickness > 0.3) {
+    score -= 10;
+  }
+
+  return {
+    score: Math.min(100, Math.max(0, score)),
+    avgThickness,
+    stdDev,
+    maxDeviation,
+  };
+}
+
+export function calculatePatternAlignmentScore(
+  patternPoints: { x: number; y: number; position?: string }[],
+  centerAxisX: number
+): number {
+  if (patternPoints.length < 2) return 100;
+
+  const mirroredPoints = patternPoints.map((p) => ({
+    original: p,
+    mirrored: mirrorPoint(p, centerAxisX),
+  }));
+
+  let totalDistance = 0;
+  let pairs = 0;
+  let positionBonus = 0;
+
+  for (let i = 0; i < mirroredPoints.length; i++) {
+    for (let j = i + 1; j < mirroredPoints.length; j++) {
+      const p1 = mirroredPoints[i].original;
+      const p2 = mirroredPoints[j].original;
+
+      const d1 = distance(p1, mirroredPoints[j].mirrored);
+      const d2 = distance(p2, mirroredPoints[i].mirrored);
+      totalDistance += Math.min(d1, d2);
+      pairs++;
+
+      if (p1.position && p2.position && p1.position === p2.position) {
+        positionBonus += 2;
+      }
+    }
+  }
+
+  if (pairs === 0) return 100;
+
+  const avgDistance = totalDistance / pairs;
+  let score = Math.max(0, 100 - avgDistance * 0.6);
+
+  if (patternPoints.length >= 4) {
+    score += Math.min(positionBonus, 10);
+  }
+
+  const yValues = patternPoints.map(p => p.y);
+  const yGroups: { y: number; xDist: number }[][] = [];
+  const used = new Set<number>();
+  
+  for (let i = 0; i < yValues.length; i++) {
+    if (used.has(i)) continue;
+    const group: { y: number; xDist: number }[] = [];
+    group.push({ y: yValues[i], xDist: Math.abs(patternPoints[i].x - centerAxisX) });
+    used.add(i);
+    for (let j = i + 1; j < yValues.length; j++) {
+      if (!used.has(j) && Math.abs(yValues[i] - yValues[j]) < 20) {
+        group.push({ y: yValues[j], xDist: Math.abs(patternPoints[j].x - centerAxisX) });
+        used.add(j);
+      }
+    }
+    yGroups.push(group);
+  }
+
+  let symmetryScore = 0;
+  yGroups.forEach(group => {
+    if (group.length >= 2) {
+      const xDists = group.map(g => g.xDist);
+      const xAvg = xDists.reduce((a, b) => a + b, 0) / xDists.length;
+      const xVariance = xDists.reduce((acc, x) => acc + (x - xAvg) ** 2, 0) / xDists.length;
+      const xStdDev = Math.sqrt(xVariance);
+      symmetryScore += Math.max(0, 10 - xStdDev * 0.2);
+    }
+  });
+
+  score += Math.min(symmetryScore, 15);
+
+  return Math.min(100, Math.max(0, score));
 }

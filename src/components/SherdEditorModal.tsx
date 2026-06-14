@@ -1,9 +1,11 @@
-import { Modal, Button, Group, TextInput, NumberInput, Stack, Text, FileButton, Image, Textarea, Alert } from '@mantine/core';
+import { Modal, Button, Group, TextInput, NumberInput, Stack, Text, FileButton, Image, Textarea, Alert, Badge } from '@mantine/core';
 import { useForm } from '@mantine/form';
 import { useAppStore } from '@/store';
 import { useEffect, useState, useRef } from 'react';
-import { IconAlertCircle, IconUpload } from '@tabler/icons-react';
+import { IconAlertCircle, IconUpload, IconCheck } from '@tabler/icons-react';
 import type { SherdImage } from '@/types';
+import { computeImageHash } from '@/utils/geometry';
+import { checkDuplicateSherd } from '@/utils/reconstruction';
 
 interface SherdEditorModalProps {
   opened: boolean;
@@ -19,6 +21,8 @@ export function SherdEditorModal({ opened, onClose, sherdId }: SherdEditorModalP
 
   const [imageData, setImageData] = useState<SherdImage | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [dupWarning, setDupWarning] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const initializedRef = useRef(false);
   const lastSherdIdRef = useRef<string | null>(null);
 
@@ -82,21 +86,37 @@ export function SherdEditorModal({ opened, onClose, sherdId }: SherdEditorModalP
       });
     }
     setErrorMsg(null);
+    setDupWarning(null);
   }, [opened, sherdId, editingSherd, form]);
 
-  const handleFile = (file: File | null) => {
+  const handleFile = async (file: File | null) => {
     if (!file) return;
+    setDupWarning(null);
     const reader = new FileReader();
-    reader.onload = (e) => {
+    reader.onload = async (e) => {
       const dataUrl = e.target?.result as string;
       const img = new window.Image();
-      img.onload = () => {
+      img.onload = async () => {
+        let hash: string | undefined;
+        try {
+          hash = await computeImageHash(dataUrl);
+        } catch {
+          hash = undefined;
+        }
+
+        const sherdNum = form.getValues().sherdNumber || `SH-${String(sherds.length + 1).padStart(3, '0')}`;
+        const dupCheck = checkDuplicateSherd(hash || '', sherdNum, sherds, sherdId || undefined);
+        if (dupCheck.isDuplicate) {
+          setDupWarning(dupCheck.reason || '检测到可能的重复残片');
+        }
+
         setImageData({
           id: Math.random().toString(36).substr(2, 9),
           name: file.name,
           dataUrl,
           width: img.width,
           height: img.height,
+          hash: hash || '',
         });
       };
       img.src = dataUrl;
@@ -104,40 +124,45 @@ export function SherdEditorModal({ opened, onClose, sherdId }: SherdEditorModalP
     reader.readAsDataURL(file);
   };
 
-  const handleSubmit = form.onSubmit((values) => {
+  const handleSubmit = form.onSubmit(async (values) => {
     setErrorMsg(null);
-    if (!imageData && !editingSherd) {
-      setErrorMsg('请上传残片图像');
-      return;
-    }
+    setIsSubmitting(true);
+    try {
+      if (!imageData && !editingSherd) {
+        setErrorMsg('请上传残片图像');
+        return;
+      }
 
-    if (editingSherd) {
-      const result = updateSherd(editingSherd.id, {
-        ...values,
-        image: imageData || editingSherd.image,
-      });
-      if (!result.success) {
-        setErrorMsg(result.error || '更新失败');
-        return;
+      if (editingSherd) {
+        const result = updateSherd(editingSherd.id, {
+          ...values,
+          image: imageData || editingSherd.image,
+        });
+        if (!result.success) {
+          setErrorMsg(result.error || '更新失败');
+          return;
+        }
+      } else {
+        const result = await addSherd({
+          ...values,
+          image: imageData!,
+          keyPoints: [],
+        });
+        if (!result.success) {
+          setErrorMsg(result.error || '添加失败');
+          return;
+        }
       }
-    } else {
-      const result = addSherd({
-        ...values,
-        image: imageData!,
-        keyPoints: [],
-      });
-      if (!result.success) {
-        setErrorMsg(result.error || '添加失败');
-        return;
-      }
+      onClose();
+    } finally {
+      setIsSubmitting(false);
     }
-    onClose();
   });
 
   return (
     <Modal
       opened={opened}
-      onClose={onClose}
+      onClose={() => !isSubmitting && onClose()}
       title={editingSherd ? '编辑残片信息' : '导入新残片'}
       size="lg"
     >
@@ -146,6 +171,11 @@ export function SherdEditorModal({ opened, onClose, sherdId }: SherdEditorModalP
           {errorMsg && (
             <Alert icon={<IconAlertCircle size={16} />} color="red" title="错误">
               {errorMsg}
+            </Alert>
+          )}
+          {dupWarning && (
+            <Alert icon={<IconCheck size={16} />} color="yellow" title="重复警告">
+              {dupWarning}
             </Alert>
           )}
 
@@ -162,6 +192,7 @@ export function SherdEditorModal({ opened, onClose, sherdId }: SherdEditorModalP
                 placeholder="1 像素等于多少毫米"
                 min={0.01}
                 decimalScale={2}
+                step={0.1}
                 key={form.key('scale')}
                 {...form.getInputProps('scale')}
               />
@@ -170,6 +201,7 @@ export function SherdEditorModal({ opened, onClose, sherdId }: SherdEditorModalP
                 placeholder="残片平均厚度"
                 min={0.1}
                 decimalScale={1}
+                step={0.5}
                 key={form.key('thickness')}
                 {...form.getInputProps('thickness')}
               />
@@ -189,7 +221,14 @@ export function SherdEditorModal({ opened, onClose, sherdId }: SherdEditorModalP
             </Stack>
 
             <Stack gap="sm" style={{ flex: 1 }}>
-              <Text size="sm" fw={500}>残片图像</Text>
+              <Group justify="space-between">
+                <Text size="sm" fw={500}>残片图像</Text>
+                {imageData?.hash && (
+                  <Badge size="xs" variant="light" color="green">
+                    已校验
+                  </Badge>
+                )}
+              </Group>
               {imageData ? (
                 <Stack gap="sm">
                   <Image
@@ -226,8 +265,10 @@ export function SherdEditorModal({ opened, onClose, sherdId }: SherdEditorModalP
           </Group>
 
           <Group justify="flex-end" mt="md">
-            <Button variant="default" onClick={onClose}>取消</Button>
-            <Button type="submit">{editingSherd ? '保存修改' : '导入残片'}</Button>
+            <Button variant="default" onClick={onClose} disabled={isSubmitting}>取消</Button>
+            <Button type="submit" loading={isSubmitting}>
+              {editingSherd ? '保存修改' : '导入残片'}
+            </Button>
           </Group>
         </Stack>
       </form>
